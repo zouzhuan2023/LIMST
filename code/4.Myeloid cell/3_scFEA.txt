@@ -1,0 +1,324 @@
+########Upstream analysis in scFEA
+
+
+conda activate scanpy_env
+
+python
+
+import scanpy as sc
+import os
+import math
+import itertools
+import warnings
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+adata = sc.read_h5ad('path/Myeloid_GEGs_renamed.h5ad')
+print(adata.obs['leiden_renamed'].value_counts())
+
+#Extraction of IBSP+Mac
+selected_clusters = ['IBSP+Mac']
+
+adata_filtered = adata[adata.obs['leiden_renamed'].isin(selected_clusters)].copy()
+
+print(adata_filtered.obs['leiden_renamed'].value_counts())
+
+dir = 'path/data/'
+adata_filtered.write_h5ad(os.path.join(dir, 'IBSP.h5ad'))
+
+adata = sc.read_h5ad('path/data/IBSP.h5ad')
+print(adata.obs['leiden_renamed'].value_counts())
+
+
+X_raw = adata.raw.X
+X_raw_transposed = X_raw.transpose()
+t = np.copy(X_raw_transposed.toarray())
+df = pd.DataFrame(t, columns=adata.obs_names, index=adata.raw.var_names)
+print(df.head())
+#save
+pd.DataFrame(data=t, index=adata.raw.var_names, columns=adata.raw.obs_names).to_csv('/mnt/sda8t/pancancer_analysis/subcluster/Myeloid_LHN/data/IBSP_counts_t.csv')
+
+
+conda activate base
+cd path/scFEA-1.1
+python src/scFEA.py --data_dir data \
+                    --test_file IBSP_counts_t.csv \
+                    --moduleGene_file module_gene_m168.csv \
+                    --cName_file cName_c70_m168.csv \
+                    --stoichiometry_matrix cmMat_c70_m168.csv \
+                    --res_dir output_path \
+                    --sc_imputation True
+
+
+
+
+########Downstream analysis visualization#############
+
+library(Seurat)
+library(dplyr)
+library(readxl)
+
+
+IBSP <- readRDS("path/IBSP+Mac.rds")
+adj_flux_IBSP <- read.csv("path/adj_flux_IBSP.csv",row.names = 1)
+
+adj_flux=adj_flux_IBSP
+
+
+#cell annotation
+IBSP$group_cells <- paste0(IBSP$sample_type,"_",IBSP$leiden_renamed)
+table(IBSP$group_cells)
+cell_anno <- data.frame(cellid=rownames(IBSP@meta.data),
+                        group_cells=IBSP$group_cells)
+
+cell_anno <- cell_anno[order(cell_anno$group_cells),] 
+adj_flux <- adj_flux[cell_anno$cellid,] 
+
+
+#Calculate the mean metabolic flux for each group
+df_averages <- adj_flux %>%
+  group_by(group = cell_anno$group_cells) %>%
+  summarise_all(mean, na.rm = TRUE) %>%
+  dplyr::select(-group)
+
+rownames(df_averages) <- unique(cell_anno$group_cells)
+df_averages <- t(df_averages)%>% as.data.frame()
+table(IBSP$group_cells)
+
+df_flux <- df_averages[,c("MLN_IBSP+Mac",
+                          "PT_IBSP+Mac",
+                          "NT_IBSP+Mac"
+)]
+
+#Delete the rows with a standard deviation of 0
+df_flux = df_flux[apply(df_flux, 1, function(x) sd(x)!=0),]
+
+library(ComplexHeatmap)
+df_flux[is.na(df_flux)] <- 0
+
+#Annotation
+
+annotation_col = data.frame(
+  sample_type= c(rep("MLN",1),rep("PT",1),rep("NT",1)),
+  celltype = c(rep(c("IBSP+Mac"), 3)))
+row.names(annotation_col) <- colnames(df_flux)
+
+
+#Module annotation
+human_moduleInfo <- read.csv("path/scFEA.human.moduleinfo.csv", header = T, row.names = 1)
+
+
+annotation_row = human_moduleInfo[rownames(df_flux),]
+annotation_row  = as.data.frame(annotation_row[,c("SM_anno")])
+rownames(annotation_row) = rownames(df_flux)
+colnames(annotation_row) = c("SM_anno")
+
+#color
+cellcolor <- c('#E59CC4')
+table(IBSP$leiden_renamed)
+names(cellcolor) <- c("IBSP+Mac")
+
+table(IBSP$sample_type)
+groupcolor <- c('#a8ddb5','#85d49b','#61c984')
+names(groupcolor) <- c("MLN","PT","NT")
+
+modulecolor <- c("#20B2AA","#FFA500","#9370DB","#98FB98","#F08080","#1E90FF","#FFFF00",
+                 "#808000","#FF00FF","#FA8072","#800080","#87CEEB","#40E0D0","#5F9EA0",
+                 "#008B8B","#FFE4B5","#228B22","#4682B4","#32CD32","#F0E68C","#FFFFE0",
+                 "#FF6347")
+
+names(modulecolor) <- unique(annotation_row$SM_anno)
+
+ann_colors <- list(celltype=cellcolor, sample_type=groupcolor,SM_anno=modulecolor) 
+
+#select module----------------------------------------------------------------------
+
+colnames(human_moduleInfo)
+human_moduleInfo$module_name <- paste0(human_moduleInfo$Module_id,": ",
+                                       human_moduleInfo$Compound_IN_name,
+                                       "_", human_moduleInfo$Compound_OUT_name)
+
+select_moduleInfo = human_moduleInfo[rownames(df_flux),]
+
+df_flux_new <- df_flux
+rownames(df_flux_new) <- select_moduleInfo$module_name
+
+row.names(annotation_col) <- colnames(df_flux_new)
+rownames(annotation_row) = rownames(df_flux_new)
+
+write.xlsx(df_flux_new, file = "df_flux_new.xlsx", rowNames = TRUE)
+write.xlsx(annotation_row, file = "annotation_row.xlsx", rowNames = TRUE)
+
+
+modules <- c("M_1: Glucose_G6P",
+             "M_2: G6P_G3P",
+             "M_3: G3P_3PD",
+             "M_4: 3PD_Pyruvate",
+             "M_5: Pyruvate_Acetyl-Coa",
+             "M_6: Pyruvate_Lactate",
+             "M_7: Acetyl-CoA+Oxaloacetate_Citrate",
+             "M_8: Citrate_2OG",
+             "M_9: 2OG_Succinyl-CoA",
+             "M_12: Fumarate_Malate",
+             "M_14: Pyruvate_Oxaloacetate",
+             "M_15: 3PD_Serine",
+             "M_16: Serine_Pyruvate",
+             "M_19: Glycine_Creatine",
+             "M_23: Glycine_Glutathione",
+             "M_26: Glutamate + Cysteine_Glutathione",
+             "M_36: Aspartate_Pyrimidine",
+             "M_40: Aspartate_Oxaloacetate",
+             "M_48: Glutamate_Glutamine",
+             "M_137: IMP_XMP"
+)
+
+pdf("Figure5A.pdf", width = 9, height = 10)
+
+pheatmap(as.matrix(df_flux_new), 
+         scale = "row",
+         show_rownames = T, 
+         show_colnames = T, 
+         cluster_cols = F,  
+         cluster_rows = T,  
+         col = colorRampPalette(c("#2166AC",'#478ABF','#90C0DC', "white",'#EF8C65','#CF4F45',"#B2182B"))(100), 
+         annotation_col = annotation_col, 
+         annotation_row = annotation_row, 
+         annotation_names_row = F, 
+         annotation_names_col = F,
+         column_title = NULL, 
+         row_title = NULL, 
+         fontsize_col = 8, 
+         fontsize_row = 4, 
+         fontsize = 5, 
+         treeheight_row = 20, 
+         name = "Flux",
+         angle_col = c("45"), 
+         annotation_colors = ann_colors)+
+  rowAnnotation(link = anno_mark(at = match(modules, rownames(df_flux_new)), 
+                               labels = modules, labels_gp = gpar(fontsize = 8)))
+
+#-----------------------------------------------------------------------------
+
+colnames(adj_flux) <- gsub("_", "-", colnames(adj_flux))
+
+predFlux <- t(data.matrix(adj_flux))
+IBSP[["FLUX"]] <- CreateAssayObject(counts = predFlux)
+
+DefaultAssay(IBSP) <- 'FLUX'
+
+##IBSP
+table(IBSP$group_cells)
+Idents(IBSP)=IBSP$group_cells
+IBSP2=subset(IBSP,ident=c("NT_IBSP+Mac","PT_IBSP+Mac"))
+IBSP2$group_cells=IBSP2@active.ident
+table(IBSP2$group_cells)
+
+#plot
+FeaturePlot(IBSP2, features = "M-6", split.by = "group_cells",pt.size = 0.1, min.cutoff = 0, raster = FALSE) &
+  theme_bw()&
+  theme(legend.margin = margin(-0.2,-0.2,0,-0.3,'cm'),
+        legend.key.height = unit(1,'cm'),
+        legend.key.width = unit(0.2,'cm'))&
+  scale_color_gradientn(colours = c('#5749a0', '#0f7ab0', '#00bbb1',
+                                    '#bef0b0', '#fdf4af', '#f9b64b',
+                                    '#ec840e', '#ca443d', '#a51a49'), 
+                        guide = guide_colorbar(frame.colour = "black", 
+                                               ticks.colour = NA))
+ggsave(filename="FeaturePlot.pdf",height = 5,width = 10)
+
+
+##Figure5B
+table(IBSP$leiden_renamed)
+Idents(IBSP)=IBSP$leiden_renamed
+table(IBSP$leiden_renamed)
+
+Idents(IBSP) <- "sample_type"
+table(IBSP$sample_type)
+cluster.order <- c("MLN","PT","NT")
+Idents(IBSP) <- factor(Idents(IBSP), levels= cluster.order)
+
+Module <- c("M-1","M-2","M-3","M-4","M-5","M-6","M-7","M-8","M-9","M-10","M-11","M-12","M-13","M-14",
+            #"M-33",
+            "M-34",
+            "M-35",
+            "M-133","M-134","M-135","M-136","M-137","M-138","M-139","M-140",
+            "M-141","M-142","M-143","M-144","M-145","M-146","M-147","M-148","M-149","M-170")
+
+
+
+
+human_moduleInfo <- read.csv("path/scFEA.human.moduleinfo.csv", header = T, row.names = 1)
+
+IBSP_module <- human_moduleInfo[c("M_1","M_2","M_3","M_4","M_5","M_6","M_7","M_8","M_9","M_10","M_11","M_12","M_13","M_14",
+                                  #"M_33",
+                                  "M_34",
+                                  "M_35",
+                                  "M_133","M_134","M_135","M_136","M_137","M_138","M_139","M_140",
+                                  "M_141","M_142","M_143","M_144","M_145","M_146","M_147","M_148","M_149","M_170"),]
+
+IBSP_module$M_name <- paste0(IBSP_module$Module_id, ": ",IBSP_module$Compound_IN_name,"_",IBSP_module$Compound_OUT_name)
+
+##plot
+DotPlot(IBSP, features = Module,cols = c("RdYlBu")) + 
+  geom_point(aes(size=pct.exp), shape = 21, colour="black", stroke=0.5) +
+  guides(size=guide_legend(override.aes=list(shape=21, colour="black", fill="white"))) + 
+  RotatedAxis() +
+  theme(
+    panel.background = element_blank(),
+    panel.border = element_rect(fill = NA),
+    panel.grid.major.x = element_blank(),
+    panel.grid.major.y = element_blank(),
+    axis.title = element_blank())+
+  scale_x_discrete(labels=IBSP_module$M_name)+
+  scale_y_discrete(labels=c("MLN","PT","NT"))+
+  coord_flip()
+ggsave(filename = "Figure5B.pdf",height = 9,width = 8)
+
+
+######Figure5D
+#(PT and NT）
+Idents(IBSP)="sample_type"
+IBSP=subset(IBSP,idents = c("PT","NT"))
+IBSP$sample_type=IBSP@active.ident
+data_1 <- as.data.frame(IBSP$RNA@data)
+data_1=as.data.frame(t(data_1))
+
+
+########Select some genes to display##########
+genelist=read.table(file="gene_scFEA.txt",sep = "",header = F)
+genelist=genelist$V1
+
+data_2=data_1[,genelist]
+
+META<-IBSP@meta.data
+CELLNAMES<-intersect(row.names(META),rownames(data_2))
+META<-META[CELLNAMES,]
+data_2<-data_2[CELLNAMES,]
+META$ID<-row.names(META)
+META1<-META[,c("ID","sample_type")]
+data<-cbind(data_2,META1)
+data2=data[,-(ncol(data)-1)]
+
+data3=melt(data2,id.vars=c("sample_type"))
+
+colnames(data3)=c("Type","Gene","Expression")
+head(data)
+
+#boxplot
+library(ggpubr)
+p=ggboxplot(data3, x="Gene", y="Expression", color = "Type", 
+            ylab="Gene expression",
+            xlab="",
+            legend.title="Type",
+            palette = c("blue","red"),
+            width=0.6, add = "none")
+p=p+rotate_x_text(60)
+p
+p1=p+stat_compare_means(aes(group=Type),
+                        method="wilcox.test",
+                        symnum.args=list(cutpoints = c(0, 0.001, 0.01, 0.05, 1), symbols = c("***", "**", "*", " ")),
+                        label = "p.signif")
+p1
+ggsave(filename = "Figure5D.pdf",p1,height = 8,width = 20)

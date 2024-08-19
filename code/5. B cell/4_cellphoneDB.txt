@@ -1,0 +1,170 @@
+#R
+#data（IBSP+Mac、At_ABC、DNT)
+IBSP <- readRDS("path/IBSP+Mac.rds")
+At_ABC <- readRDS("path/At_ABC.rds")
+DNT <- readRDS("path/DNT1_subclusters(effect+FOXP3).rds")
+pbmc=merge(x=At_ABC,y=c(IBSP,DNT))
+View(pbmc@meta.data)
+table(pbmc@active.ident)
+table(pbmc$leiden_renamed)
+pbmc$leiden_renamed=as.factor(pbmc$leiden_renamed)
+
+#rename
+pbmc@meta.data$subcelltype = ifelse(pbmc@meta.data$leiden_renamed %in%
+                                      c("At_ABC"),"At_ABC", 
+                                    ifelse(pbmc@meta.data$leiden_renamed %in%
+                                             c("c1_DNT_GZMK"),"DNT_GZMK", 
+                                           ifelse(pbmc@meta.data$leiden_renamed %in%
+                                                    c("c4_DNT_FOXP3"),"DNT_FOXP3",  
+                                                  ifelse(pbmc@meta.data$leiden_renamed %in%
+                                                           c("c7_DNT_GNLY"),"DNT_GNLY", "IBSP+Mac"))))
+
+table(pbmc$subcelltype)
+
+
+#######################Randomly select 30% of the data from each group#############
+library(Seurat)
+library(dplyr)
+
+set.seed(123)
+
+cluster_info <- Idents(pbmc)
+
+sampled_cells <- c()
+
+for (cluster in unique(cluster_info)) {
+  cluster_cells <- names(cluster_info[cluster_info == cluster])
+  
+  sample_size <- round(length(cluster_cells) * 0.3)
+  
+  sampled_cluster_cells <- sample(cluster_cells, sample_size)
+  
+  sampled_cells <- c(sampled_cells, sampled_cluster_cells)
+}
+
+pbmc_sampled <- subset(pbmc, cells = sampled_cells)
+
+pbmc_sampled
+
+
+colnames(r_pbmc_sampled[[]])
+
+counts <- as.matrix(r_pbmc_sampled@assays$RNA@data)
+
+write.table(counts,'pan_cellphonedb_03count.txt',sep='\t', quote=F)
+
+meta_data <- cbind(rownames(r_pbmc_sampled@meta.data), r_pbmc_sampled@meta.data[,'leiden_renamed', drop=F]) 
+meta_data <- as.matrix(meta_data)
+meta_data[is.na(meta_data)] = "Unkown" 
+write.table(meta_data,'pan_cellphonedb_03meta.txt', sep='\t', quote=F, row.names=F)
+
+saveRDS(r_pbmc_sampled,file="pbmc_cellphoneDBdata03.rds")
+
+#python
+conda activate shade_env
+cd /path/cellphoneDB/
+  
+  conda activate cellphonedb
+
+(cellphonedb) ps@ps:~$ python
+
+import pandas as pd
+import pandas as pd
+import os
+
+test_meta_file_path = 'pan_cellphonedb_03meta.txt'
+test_counts_file_path = 'pan_cellphonedb_03count.txt'
+
+cpdb_file_path = 'cellphonedb.zip'
+
+from cellphonedb.src.core.methods import cpdb_statistical_analysis_method
+
+cpdb_results = cpdb_statistical_analysis_method.call(cpdb_file_path = cpdb_file_path,meta_file_path = test_meta_file_path,counts_file_path = test_counts_file_path,
+                                                     counts_data = 'hgnc_symbol',score_interactions = True,iterations = 1000,threshold = 0.1,threads = 5,debug_seed = 42,result_precision = 3,pvalue = 0.05,
+                                                     subsampling = False,subsampling_log = False,subsampling_num_pc = 100,subsampling_num_cells = 1000,separator = '|',debug = False,
+                                                     output_path = "path",output_suffix = "pbmc")
+
+
+##########R Visualization
+
+options(timeout=9999)
+
+library(tidyverse)
+library(RColorBrewer)
+library(scales)
+library(ktplots)
+
+#data
+pvalues=read.table("path/statistical_analysis_pvalues_pbmc.txt",header = T,sep = "\t",stringsAsFactors = F)
+means=read.table("path/statistical_analysis_means_pbmc.txt",header = T,sep = "\t",stringsAsFactors = F)
+head(pvalues)
+
+colnames(pvalues)[12:ncol(pvalues)] 
+#head(pvalues)
+
+sm = as.data.frame(
+  do.call(rbind,
+          lapply( 12:ncol(pvalues) , function(i){
+            return(c( strsplit(colnames(pvalues)[i],'\\.')[[1]],
+                      sum(pvalues[,i] <0.05)))
+          }))
+)
+head(sm)
+
+
+colnames(sm)=c('SOURCE' ,'TARGET' ,'count')
+sm$count = as.numeric( sm$count )
+sm
+
+# matrix
+sm <- sm[-(1:2),]
+library(reshape2)
+sm_df =dcast(as.data.frame(sm),SOURCE~TARGET )
+sm_df[is.na(sm_df)]=0
+sm_df
+rownames(sm_df) = sm_df[,1]
+sm_df = sm_df[,-1]
+
+
+library(ktplots)
+
+pvals <- read.delim("path/statistical_analysis_pvalues_pbmc.txt", check.names = FALSE)
+head(pvals)
+
+#heatmap
+pdf("Cellphone_heatmap.pdf",width=8,height=8)
+p<-plot_cpdb_heatmap(pvals = pvals, cellheight = 30, cellwidth = 30)
+
+
+# Bubble chart
+means <- read.delim("path/statistical_analysis_means_pbmc.txt", check.names = FALSE)
+scRNA2 <- readRDS("path/pbmc_cellphoneDBdata03.rds")  
+
+meta_data <- cbind(rownames(scRNA2@meta.data), scRNA2@meta.data[,'subcelltype', drop=F]) 
+meta_data <- as.matrix(meta_data)
+meta_data[is.na(meta_data)] = "Unkown" 
+counts <- as.matrix(scRNA2@assays$RNA@data)
+library(SingleCellExperiment)
+sce <- SingleCellExperiment(assays = list(counts = counts),colData = meta_data)
+
+
+library(dplyr)
+library(psych)
+library(igraph)
+library(tidyverse)
+library(ggplot2)
+
+
+p<-plot_cpdb(
+  scdata=sce,
+  cell_type1="At_ABC",
+  cell_type2=".",  # this means all cell-types
+  celltype_key="subcelltype",
+  means=means,
+  pvals=pvals,
+  cluster_rows = TRUE,
+  genes=NULL
+)
+
+p
+ggsave(filename = "Figure8B.pdf",width=10,height=8)

@@ -1,0 +1,96 @@
+#Xshell#
+
+cd /path/script
+echo "" > download_script.sh
+
+vim download_script.sh
+
+####Download data####
+#!/bin/bash
+cd /path/
+
+download_file() {
+    local command="$1"
+    local retry_count=0
+    until eval "$command"
+    do
+        retry_count=$((retry_count + 1))
+        if [ $retry_count -ge 5 ]; then
+            echo "尝试下载5次后仍失败，跳过该文件"
+            break
+        fi
+        echo "下载出错，正在重试第 $retry_count 次..."
+        sleep 60
+    done
+}
+
+commands=(
+"ascp -QT -l 300m -P33001 -i $HOME/.aspera/connect/etc/asperaweb_id_dsa.openssh era-fasp@fasp.sra.ebi.ac.uk:vol1/fastq/SRR158/067/SRR15898167/SRR15898167_2.fastq.gz . && mv SRR15898167_2.fastq.gz SRR15898167_GSM5578183_High_L31_Homo_sapiens_RNA-Seq_2.fastq.gz"
+)
+
+for cmd in "${commands[@]}"; do
+    download_file "$cmd"
+done
+
+chmod +x download_script.sh
+
+####Run scripts in the background with nohup####
+nohup ./download_script.sh &> download.log &
+tail -f download.log
+
+
+####STAR SOLO####
+#!/bin/bash#
+##==== parameters ====##
+## Paths##
+inPath="/path/"
+outPath="/path/"
+
+## STAR config##
+refIndex="/path/GRCh38-2020-A"
+CPU=16
+
+
+## barcode config##
+whiteList="/path/737K-august-2016.txt" ## 10x 3'v2
+barcode_setting="--soloCBstart 1 --soloCBlen 16 --soloUMIstart 17 --soloUMIlen 10 --soloBarcodeReadLength 0"
+
+## barcode config##
+#whiteList="/path/3M-february-2018.txt" ## 10x 3'v3
+#barcode_setting="--soloCBstart 1 --soloCBlen 16 --soloUMIstart 17 --soloUMIlen 12 --soloBarcodeReadLength 0"
+
+## output config##
+soloFeatures="Gene Velocyto" 
+outSAMSettings="--outSAMtype BAM Unsorted --outSAMunmapped Within" 
+
+
+inFASTQ_cDNA_list=()
+inFASTQ_barcode_list=()
+
+for sampleID in SRR19331805 SRR19331806 SRR19331807 SRR19331808; do
+    inFASTQ_cDNA_list+=("$inPath/${sampleID}_2.fastq.gz")
+    inFASTQ_barcode_list+=("$inPath/${sampleID}_1.fastq.gz")
+done
+
+inFASTQ_cDNA=$(IFS=", "; echo "${inFASTQ_cDNA_list[*]}")
+inFASTQ_barcode=$(IFS=", "; echo "${inFASTQ_barcode_list[*]}")
+
+echo "inFASTQ_cDNA=$inFASTQ_cDNA"
+echo "inFASTQ_barcode=$inFASTQ_barcode"
+
+outPrefix="$outPath/combinedSample"
+
+mkdir -p $outPrefix
+
+##==== cmds ====##
+STAR --genomeDir $refIndex \
+--runThreadN $CPU \
+$outSAMSettings \
+--outFileNamePrefix $outPrefix/ \
+--readFilesIn $inFASTQ_cDNA $inFASTQ_barcode \
+--readFilesCommand zcat \
+--soloType CB_UMI_Simple \
+$barcode_setting \
+--soloCBwhitelist $whiteList \
+--soloCellFilter EmptyDrops_CR \
+--soloFeatures $soloFeatures

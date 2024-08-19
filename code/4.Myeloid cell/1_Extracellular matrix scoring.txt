@@ -1,0 +1,137 @@
+#########################Figure4E、F
+
+library(GSVA)
+library(GSEABase)
+library(clusterProfiler)
+library(dplyr)
+library(limma)
+library(Seurat)
+library(pheatmap)
+library(stringr)
+library(ggplot2)
+library(psych)
+library(Matrix)
+library(ggpubr)
+library(SingleR)
+library(ggridges)
+library(ggplot2)
+library(cols4all)
+
+Myeloid <- readRDS("path/Myeloid_GEGs_renamed.rds")
+
+Idents(Myeloid)="leiden_renamed"
+IBSP=subset(Myeloid,ident=c("IBSP+Mac"))
+IBSP$leiden_renamed=IBSP@active.ident
+
+Idents(IBSP)="sample_type"
+IBSP_ECM=subset(IBSP,ident=c("PT","NT"))
+IBSP_ECM$sample_type=IBSP_ECM@active.ident
+table(IBSP_ECM$sample_type)
+
+##Figure4E
+
+scRNA_sub=IBSP_ECM
+
+# Compare the groups and calculate the logFC of each gene
+sub.markers <- FindMarkers(scRNA_sub,group.by = 'sample_type',
+                           ident.1 = 'PT',ident.2 = 'NT',logfc.threshold = 0.01)
+sub.markers.sig <- subset(sub.markers, p_val_adj<0.05 & avg_log2FC >0.01)#up gene
+
+
+#####Get intersection genes
+# Get the gene list in the Seurat object
+seurat_genes <- rownames(sub.markers.sig)
+#View gene
+sub.markers.sig1=sub.markers.sig
+sub.markers.sig1$gene=rownames(sub.markers.sig1)
+
+gene<-read.table(file = "ECMgene.txt",header = F)
+gene=gene$V1
+
+# Take the intersection and get the common genes
+common_genes <- intersect(seurat_genes, gene)
+
+print(common_genes)
+common_genes=as.data.frame(common_genes)
+
+################Volcano showing DEG between PT and NT##############
+sub.markers1=sub.markers
+sub.markers1$logpvalue <- -log10(sub.markers1$p_val)
+
+# marker up and down gene
+sub.markers1$group ="none"
+sub.markers1$group[which((sub.markers1$avg_log2FC > 0.05) & (sub.markers1$p_val < 0.05))] = "up"   
+sub.markers1$group[which((sub.markers1$avg_log2FC < -0.05) & (sub.markers1$p_val < 0.05))] = "down"  
+
+# Read in the file showing gene names and mark them in the differential gene file
+gene <- read.delim("common_genes.txt",sep="\t",header = T,quote = "",fill=TRUE)
+gene=common_genes
+colnames(gene)="gene"
+
+sub.markers1$label=""
+sub.markers1$gene=rownames(sub.markers1)
+gene1=gene$gene
+sub.markers1$label[match(gene1,sub.markers1$gene)] <- gene1
+
+# Set color and sort
+sub.markers1$color <- ifelse(sub.markers1$group == "none" & sub.markers1$label == "", "color1",   #color1: up genes, without labeling gene names
+                             ifelse(sub.markers1$group == "up" & sub.markers1$label == "", "color2",   #color2：up genes, without labeling gene names
+                                    ifelse(sub.markers1$group == "down" & sub.markers1$label == "", "color3",  #color3：down genes，without labeling gene names
+                                           ifelse(sub.markers1$group == "up" & sub.markers1$label != "", "color4", "color5"))))  #color4:Upregulated differentially expressed genes labeled with gene names in the figure.  color5:Those not among the aforementioned categories, specifically the downregulated differentially expressed genes labeled with gene names in the figure
+
+# plot
+sub.markers1 <- arrange(sub.markers1, color)  
+
+p <- ggscatter(sub.markers1,
+               x = "avg_log2FC", 
+               y = "logpvalue",  
+               color = "color", 
+               palette = c("#bcbcbc", "#ffab84",  "#8abddc","#be000e", "#0051a6"),  
+               label = sub.markers1$label,   
+               font.label = c(15, "plain", "black"),  
+               repel = TRUE) +   
+  labs(title = "PT vs NT",   
+       x = expression(paste(Log[2], 'Fold Change')),  
+       y = expression(paste(-Log[10], 'P-value'))) +  
+  theme(plot.title = element_text(hjust = 0.5, vjust = 0.5), 
+        text = element_text(size = 15),  
+        legend.position = "none")+ylim(0,350)  
+
+p
+
+ggsave(filename = "Figure4E.pdf",p,height = 7,width = 8)
+
+###Figure4F
+gene=read.table(file = "ECMgene.txt",header = F)
+
+pbmc3k.final=IBSP_ECM
+
+
+
+exprMatrix <- GetAssayData(pbmc3k.final, assay = "RNA", slot = "data")
+gene1=gene$V1
+
+geneset <- list(gene1) 
+
+ucell_scores <- ScoreSignatures_UCell(matrix = exprMatrix, features = geneset)
+
+pbmc3k.final <- AddMetaData(pbmc3k.final, as.data.frame(ucell_scores), col.name = "ECM_Remodeling_Score")
+                   
+meta<-pbmc3k.final@meta.data
+
+p1 <- ggplot(data = meta,
+             aes(x = ECM_Remodeling_Score, y = sample_type, fill = sample_type)) +
+  geom_density_ridges(alpha = 0.8,
+                      color = 'white',
+                      rel_min_height = 0.01, 
+                      scale = 1.8, 
+                      quantile_lines = TRUE,
+                      quantiles = 2 
+  ) +
+  theme_classic() +
+  theme(legend.position = 'none')+
+  scale_x_continuous(limits = c(0,0.2),
+                     breaks = seq(0,0.2, by = 0.05)) 
+
+p1
+ggsave(filename = "Figure4F.pdf",p1,width = 6,height = 5)

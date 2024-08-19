@@ -1,0 +1,125 @@
+conda activate scanpy_env
+import scanpy as sc
+import numpy as np
+import matplotlib.pyplot as plt
+
+from gene_trajectory.add_gene_bin_score import add_gene_bin_score
+from gene_trajectory.coarse_grain import select_top_genes, coarse_grain_adata
+from gene_trajectory.extract_gene_trajectory import get_gene_embedding, extract_gene_trajectory
+from gene_trajectory.get_graph_distance import get_graph_distance
+from gene_trajectory.gene_distance_shared import cal_ot_mat
+from gene_trajectory.run_dm import run_dm
+from gene_trajectory.plot.gene_trajectory_plots import plot_gene_trajectory_3d, plot_gene_trajectory_umap
+from gene_trajectory.util.download_file import download_file_if_missing
+
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
+warnings.simplefilter(action='ignore', category=UserWarning)
+
+####Loading example data#####
+
+adata = sc.read_h5ad('/path/GeneTrajectory.h5ad')
+
+desired_cell_counts = {
+    'TMSB4X+ ABC': int(0.2 * sum(adata.obs['leiden_renamed'] == 'TMSB4X+ ABC')),
+    'TNFRSF13C+ ABC': int(0.3 * sum(adata.obs['leiden_renamed'] == 'TNFRSF13C+ ABC')),
+    'GCB': int(0.3 * sum(adata.obs['leiden_renamed'] == 'GCB')),
+    'NBC': int(0.3 * sum(adata.obs['leiden_renamed'] == 'NBC'))
+}
+
+print(desired_cell_counts)
+
+selected_cells = []
+for cell_type, count in desired_cell_counts.items():
+    cells_of_type = adata[adata.obs['leiden_renamed'] == cell_type].obs_names
+    selected_cells.extend(np.random.choice(cells_of_type, count, replace=False))
+
+At_ABC = adata[adata.obs['leiden_renamed'] == 'At_ABC'].obs_names
+
+selected_cells.extend(At_ABC)
+
+GeneTrajectory_B_cells = adata[selected_cells].copy()
+
+GeneTrajectory_B_cells.write('/path/GeneTrajectory_new.h5ad')
+
+adata = sc.read_h5ad('/path/GeneTrajectory_new.h5ad')
+
+adata.raw = adata.copy()
+
+sc.pp.normalize_total(adata)
+
+sc.pp.log1p(adata)
+
+sc.pp.highly_variable_genes(adata, n_top_genes=2000, flavor='cell_ranger')
+
+sc.pp.scale(adata, max_value=10)
+
+sc.tl.pca(adata)
+
+sc.pp.neighbors(adata)
+
+sc.tl.umap(adata)
+
+adata.obs['leiden_renamed'] = adata.obs['leiden'].replace({
+     '0': 'TNFRSF13C+ ABC',
+     '2': 'TMSB4X+ ABC',
+     '4': 'TMSB4X+ ABC',
+     '6': 'NBC',
+     '7': 'GCB',
+     '8': 'At_ABC',}
+)
+sc.pl.umap(adata, color=["leiden_renamed"])
+plt.savefig('/path/GeneTrajectory_umap.pdf')
+
+plt.close('all')
+
+####Gene-gene distance computation####
+
+if 'counts' not in adata.layers:
+    adata.layers['counts'] = adata.raw.X.copy()
+
+genes = select_top_genes(adata, layer='counts', n_variable_genes=500)
+
+len(genes)
+
+####Prepare the input for gene-gene Wasserstein distance computation#####
+
+run_dm(adata)
+
+cell_graph_dist = get_graph_distance(adata, k=10)
+
+gene_expression_updated, graph_dist_updated = coarse_grain_adata(adata, graph_dist=cell_graph_dist, features=genes, n=500)
+
+gene_expression_updated
+graph_dist_updated
+
+gene_dist_mat = cal_ot_mat(gene_expr=gene_expression_updated, 
+                           ot_cost=graph_dist_updated, 
+                           show_progress_bar=True)
+
+gene_dist_mat
+
+####Gene trajectory inference and visualization#######
+
+gene_embedding, _ = get_gene_embedding(gene_dist_mat, k = 5)
+
+gene_trajectory = extract_gene_trajectory(gene_embedding, gene_dist_mat, t_list = [4, 8, 7], gene_names=genes, k=5)
+
+missing_genes = [gene for gene in ['RGS13', 'SUGCT', 'LMO2'] if gene not in gene_trajectory.index]
+print(f"Missing genes: {missing_genes}")
+
+plot_gene_trajectory_3d(gene_trajectory, label_genes=[ 'SUGCT'])
+plt.savefig('/path/GeneTrajectory.pdf')
+
+adata.layers['alra'] = adata.raw.X.copy()
+
+add_gene_bin_score(adata, gene_trajectory=gene_trajectory, n_bins=5, trajectories=2, layer='alra')
+
+plot_gene_trajectory_umap(adata, 'Trajectory1', other_panels='leiden_renamed')
+plt.savefig('/path/GeneTrajectory1.pdf')
+
+plot_gene_trajectory_umap(adata, 'Trajectory2', other_panels='leiden_renamed')
+plt.savefig('/path/GeneTrajectory2.pdf')
+
+plot_gene_trajectory_umap(adata, 'Trajectory3', other_panels='leiden_renamed', reverse=True)
+plt.savefig('/path/GeneTrajectory3.pdf')

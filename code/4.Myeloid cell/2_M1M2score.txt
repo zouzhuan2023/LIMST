@@ -1,0 +1,109 @@
+##########Figure5H
+
+M1_score=read.table("M1_score.txt")
+M1_score=M1_score$V1
+M2_score=read.table("M2_score.txt")
+M2_score=M2_score$V1
+
+# Calculating M1 and M2 scores
+Myeloid <- AddModuleScore(Myeloid, features = list(M1_score), name = "M1_score")
+Myeloid <- AddModuleScore(Myeloid, features = list(M2_score), name = "M2_score")
+
+
+
+# Plotting the spatial expression of M1 scores
+FeaturePlot(Myeloid, features = "M1_score1", reduction = "umap",raster=FALSE) +
+  scale_color_gradientn(colors = brewer.pal(9, "YlGnBu")) +
+  theme(panel.border = element_blank(),  
+        axis.line = element_blank(), 
+        axis.text = element_blank(),  
+        axis.ticks = element_blank())+ 
+  ggtitle("M1_score")
+ggsave(filename = "MyeloidM1_umap.pdf",height =7,width =10)
+
+FeaturePlot(Myeloid, features = "M2_score1", reduction = "umap",raster=FALSE) +
+  scale_color_gradientn(colors = brewer.pal(9, "YlGnBu")) +
+  theme(panel.border = element_blank(),  
+        axis.line = element_blank(), 
+        axis.text = element_blank(), 
+        axis.ticks = element_blank())+ 
+  ggtitle("M2_score")
+ggsave(filename = "MyeloidM2_umap.pdf",height =7,width =10)
+
+
+###Extraction of 9 macrophage populations
+load("path/Mac.Rdata")
+table(CMac$leiden_renamed)
+Idents(CMac) <- 'leiden_renamed'  
+
+##########M1M2 vinplot######
+
+M1_score=read.table("M1_score.txt")
+M1_score=M1_score$V1
+M2_score=read.table("M2_score.txt")
+M2_score=M2_score$V1
+
+CMac <- AddModuleScore(CMac, features = list(M1_score), name = "M1_score")
+CMac <- AddModuleScore(CMac, features = list(M2_score), name = "M2_score")
+
+
+p1 <- VlnPlot(CMac, features = "M1_score1", group.by = 'leiden_renamed', pt.size = 0,raster=FALSE) +
+  ggtitle("M1 score") +
+  stat_compare_means(method = "kruskal.test") + 
+  scale_fill_manual(values = c("IBSP+Mac" = "#E5D2DD",  
+                               "GPNMB+Mac" = "#53A85F",  
+                               "AREG+Mac" = "#F1BB72",  
+                               "CCL3+Mac" = "#F3B1A0",  
+                               "CX3CR1+Mac" = "#D6E7A3",  
+                               "SFTPB+Mac" = "#57C3F3",  
+                               "LYVE1+Mac" = "#476D87",  
+                               "MKI67+Mac" = "#E95C59", 
+                               "CD5L+Mac"="#E59CC4")) + 
+  theme_minimal() + 
+  theme(axis.title.x = element_blank(), axis.title.y = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),  
+        axis.line = element_line(size = 0.5, colour = "black"),
+        axis.text.x = element_text(angle = 45, hjust = 1))  )
+
+avg_scores <- tapply(CMac@meta.data$M1_score1, CMac@meta.data$leiden_renamed, mean)
+avg_scores_df <- data.frame(cluster = names(avg_scores), avg_score = avg_scores)
+
+p2 <- p1 + geom_text(data = avg_scores_df, 
+                     aes(x = cluster, y = avg_score, label = round(avg_score, 4)),
+                     inherit.aes = FALSE, 
+                     position = position_nudge(y = 0.0), 
+                     size = 4)
+p2
+ggsave(filename = "M1vinplot.pdf",p2,width = 8,height = 5)
+
+
+p2 <- VlnPlot(CMac, features = "M2_score1", group.by = 'leiden_renamed', pt.size = 0,raster=FALSE) +
+  ggtitle("M2 score") +
+  stat_compare_means(method = "kruskal.test") + 
+  scale_fill_manual(values = c("IBSP+Mac" = "#E5D2DD",  
+                               "GPNMB+Mac" = "#53A85F",  
+                               "AREG+Mac" = "#F1BB72",  
+                               "CCL3+Mac" = "#F3B1A0",  
+                               "CX3CR1+Mac" = "#D6E7A3",  
+                               "SFTPB+Mac" = "#57C3F3",  
+                               "LYVE1+Mac" = "#476D87",  
+                               "MKI67+Mac" = "#E95C59", 
+                               "CD5L+Mac"="#E59CC4")) +  
+  theme_minimal() + 
+  theme(axis.title.x = element_blank(), axis.title.y = element_blank(),
+        panel.grid.major = element_blank(),  
+        panel.grid.minor = element_blank(),  
+        axis.line = element_line(size = 0.5, colour = "black"),
+        axis.text.x = element_text(angle = 45, hjust = 1))  )
+
+avg_scores <- tapply(CMac@meta.data$M2_score1, CMac@meta.data$leiden_renamed, mean)
+avg_scores_df <- data.frame(cluster = names(avg_scores), avg_score = avg_scores)
+
+p3 <- p2 + geom_text(data = avg_scores_df, 
+                     aes(x = cluster, y = avg_score, label = round(avg_score, 4)),
+                     inherit.aes = FALSE, 
+                     position = position_nudge(y = 0.0), 
+                     size = 4)
+p3
+ggsave(filename = "M2vinplot.pdf",p3,width = 8,height = 5)

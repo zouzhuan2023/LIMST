@@ -1,0 +1,87 @@
+load("path/B_newdata.Rdata")
+
+my36colors <-c('#DCC1DD', '#E63863','#F1BB72', '#F3B1A0', '#D6E7A3', '#91D0BE', '#E4C755',
+               '#F7F398', '#CCE0F5', '#AB3282'
+)
+DimPlot(B,label=T,group.by = "leiden_renamed",raster=FALSE,cols = my36colors)
+
+Idents(B) <- B$leiden_renamed
+
+anno_sample <- B@meta.data
+
+###monocle3
+data <- GetAssayData(B,assay = "RNA",slot = "counts")
+data <- data[rowSums(data>0)>=3,] 
+dim(data)
+cell_metadata <- B@meta.data
+gene_annotation <- data.frame(gene_short_name=rownames(data))
+rownames(gene_annotation) <- rownames(data)
+
+cds <- new_cell_data_set(data,
+                         cell_metadata = cell_metadata,
+                         gene_metadata = gene_annotation)
+cds <- preprocess_cds(cds,num_dim = 100)
+
+cds <- reduce_dimension(cds,preprocess_method = "PCA")
+p1 <- plot_cells(cds,reduction_method = "UMAP",color_cells_by = "leiden_renamed")
+p1
+
+cds.embed <- cds@int_colData$reducedDims$UMAP
+int.embed <- Embeddings(B,reduction = "umap")
+int.embed <- int.embed[rownames(cds.embed),]
+cds@int_colData$reducedDims$UMAP <- int.embed
+p2 <- plot_cells(cds,reduction_method = "UMAP",color_cells_by = "leiden_renamed")
+p2
+ggsave(filename = "path/UMAP2.pdf",height = 10,width = 10)
+p2 <- plot_cells(cds,reduction_method = "UMAP",color_cells_by = "celltype")
+
+#Cell clustering
+cds <- cluster_cells(cds,resolution = 0.01,k=20,random_seed=18,verbose=T)
+#Manually set the clustering results in the cds object to those from the B object
+#cds@clusters$UMAP$clusters <- B$celltype_level3_0912
+cds@clusters$UMAP$clusters <- B$leiden_renamed
+
+plot_cells(cds,color_cells_by = "partition")
+
+p1 <- plot_cells(cds,group_cells_by = 'cluster')
+p1
+
+
+#####Pseudo-temporal analysis
+cds <- learn_graph(cds, verbose =T,
+                   use_partition=T,close_loop=F)
+p <- plot_cells(cds, color_cells_by = "cluster", label_groups_by_cluster=T,
+                label_leaves=T, label_branch_points=T,cell_size = 0.5,group_label_size=4)
+
+cds <- order_cells(cds)
+
+#plot
+library(Seurat)
+library(ggplot2)
+library(cowplot)  
+
+p1 <- plot_cells(cds, color_cells_by = "pseudotime",
+                 label_branch_points = FALSE, label_leaves = FALSE) +
+  NoLegend() + 
+  theme_minimal() + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())  
+
+
+p2 <- plot_cells(cds, color_cells_by = "leiden_renamed",show_trajectory_graph = FALSE,
+                 label_branch_points = FALSE, label_leaves = FALSE) +
+  NoLegend() +
+  theme_minimal() +
+  scale_color_manual(values = my36colors)+ 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())  
+
+legend <- get_legend(
+  plot_cells(cds, color_cells_by = "leiden_renamed",show_trajectory_graph = FALSE) +
+    scale_color_manual(values = my36colors)
+)
+
+final_plot <- plot_grid(p1, p2, legend, ncol = 3, rel_widths = c(1, 1, 0.2))  
+
+print(final_plot)
+
+# save
+ggsave("path/Fig1F.pdf",p1,width = 10,height = 8)

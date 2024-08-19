@@ -1,0 +1,70 @@
+## Load the package ####
+library(GSVA)
+library(GSEABase)
+library(clusterProfiler)
+library(GSEA)
+library(dplyr)
+library(limma)
+library(Seurat)
+library(pheatmap)
+library(stringr)
+library(ggplot2)
+library(psych)
+library(Matrix)
+library(ggpubr)
+## Empty the environment ####
+rm(list=ls())
+## Set the working path to ####
+setwd("/path")
+## Read the data ####
+DNT <- readRDS("path /DNT_DEGs_selected_samplegroup_clusters_new_order.rds")
+gsvatestdata <- DNT
+table(gsvatestdata@meta.data$leiden_renamed)
+Idents(gsvatestdata) <- "leiden_renamed"
+## Calculate the average expression of each celltype ####
+Average <- AverageExpression(gsvatestdata, assays = NULL, features = NULL, return.seurat = FALSE,
+                             add.ident = NULL, slot = "data", use.scale = FALSE, use.counts = FALSE, verbose = TRUE)
+## View the data ####
+table(Average)
+## Get the representation matrix ####
+data <- as.matrix(Average$RNA)
+
+
+## Read the HAllmarker path ####
+genesets2 <- read.gmt("path /h.all.v2023.1.Hs.symbols.gmt")
+genesets2 = split(genesets2$gene, genesets2$term)
+
+## Run GSVA and use Poisson ####
+GSVAresult <- gsva(data, genesets2, min.sz=10, max.sz=Inf, tau=1, method="gsva", kcdf="Poisson",
+                   mx.diff=TRUE, abs.ranking=FALSE, verbose=TRUE, parallel.sz=10)
+## Save the data ####
+write.csv(GSVAresult, file = "DNT_hall.csv")
+## transpose data ####
+t <- t(scale(t(GSVAresult)))
+write.csv(t, file = "DNT_hall_t.csv")
+## Import filtered paths####
+t1 <- read.csv("DNT_hall_t1.csv", header = T, row.names = 1) 
+class(t1)
+t2<-data.frame(id=row.names(t1),
+               t1)
+## remove HALLMARK_
+t2$id<-str_replace(t2$id,"HALLMARK_","")
+rownames(t2)<-(t2$id)
+t2<-t2[,-1]
+#t1<-t
+t2 <- as.matrix(t2)
+
+## Check the pathway #####
+rownames(t2)
+p <- pheatmap::pheatmap(t2,  
+                        cluster_rows = T, # Row clustering
+                        cluster_cols = F, # column clustering, you can see the degree of differentiation between samples
+                        show_colnames =T,
+                        fontsize = 14,
+                        border_color = '#C9B9A0',
+                        scale = "row", # normalized by row
+                        color = colorRampPalette(c('#845EC2', "white",'#FF8066'))(30),
+                        angle_col = c("45")
+)
+## Save the heat map
+ggsave("gsvaheatmap.pdf",p,width = 10,height = 8)

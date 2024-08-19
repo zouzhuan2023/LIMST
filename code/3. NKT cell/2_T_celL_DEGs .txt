@@ -1,0 +1,284 @@
+## Activate the environment####
+conda activate scanpy_env
+
+# #Python environment####
+python
+
+## Load packages and read data####
+import scanpy as sc
+import os
+import math
+import itertools
+import warnings
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+##Read file####
+CD4_cell = sc.read_h5ad('path/CD4_cells.h5ad')
+dir = 'path/CD4/'
+print(CD4_cell.obs.columns.tolist())
+num_cells = CD4_cell.n_obs
+print(f"Total number of cells in CD4 dataset: {num_cells}")
+# 126192
+
+## Find highly variable genes####
+sc.pp.highly_variable_genes(CD4_cell, min_mean=0.0125, max_mean=3, min_disp=0.5)
+CD4_cell = CD4_cell[:, CD4_cell.var.highly_variable]
+sc.pp.scale(CD4_cell, max_value=10)
+
+## Run PCA####
+sc.tl.pca(CD4_cell, svd_solver='arpack')
+sc.pl.pca_variance_ratio(CD4_cell, log=True)
+plt.savefig(dir+"pca_variance.pdf")
+CD4_cell.write(dir + 'CD4_cell_PCA.h5ad')
+
+##The following code should be written to run as a .py file####
+import scanpy as sc
+import scvi
+import os
+import math
+import itertools
+import warnings
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+adata = sc.read_h5ad('path/CD4_cell_PCA.h5ad')
+dir = 'path/'
+sc.pp.neighbors(adata, use_rep='X_scVI')
+sc.tl.umap(adata)
+sc.tl.tsne(adata)
+sc.tl.leiden(adata, resolution=0.5)
+sc.tl.rank_genes_groups(adata, 'leiden', method='wilcoxon')
+sc.pl.rank_genes_groups(adata, n_genes=25, sharey=False)
+
+result = adata.uns['rank_genes_groups']
+groups = result['names'].dtype.names
+all_groups_df = pd.DataFrame()
+for group in groups:
+    group_data = pd.DataFrame({
+        f"{group}_{key}": result[key][group]
+        for key in ['names', 'pvals', 'logfoldchanges', 'scores']
+    })
+    all_groups_df = pd.concat([all_groups_df, group_data], axis=1)
+all_groups_df.to_csv('path/CD4DEG.csv', index=False)
+adata.write(dir + 'CD4_cell_DEGs.h5ad')
+
+##Run the script directly####
+nohup python /path/QC_0422.py > /path/output.log 2>&1 &
+ps -ef | grep python
+tail -f /path/output.log
+
+
+## Load data
+CD4_cell = sc.read_h5ad('path/CD4_cell_DEGs.h5ad')
+dir = 'path/'
+
+# Define selected Leiden cluster numbers
+selected_clusters = ['0', '1', '2', '3', '4', '5', '6', '7']
+
+# Filter data based on Leiden clusters
+adata_filtered = CD4_cell[CD4_cell.obs['leiden'].isin(selected_clusters)].copy()
+
+# Rename selected clusters based on provided names
+cluster_rename = {
+    '0': 'CD4_c0_Treg_TIGIT',
+    '1': 'CD4_c1_Trm',
+    '2': 'CD4_c2_Tn',
+    '3': 'CD4_c3_Tm',
+    '4': 'CD4_c4_CTL',
+    '5': 'CD4_c5_Treg_APOE',
+    '6': 'CD4_c6_Th17',
+    '7': 'CD4_c7_Treg_MKI67'
+}
+adata_filtered.obs['leiden_renamed'] = adata_filtered.obs['leiden'].map(cluster_rename)
+
+save_dir = 'path/CD4/'
+save_path = save_dir + 'CD4_cells_selected_clusters.h5ad'
+adata_filtered.write(save_path)
+
+# Extract MLN, PT, NT, Met, Pre groups
+h5ad_file_path = 'path/CD4_cells_selected_clusters.h5ad'
+adata = sc.read_h5ad(h5ad_file_path)
+dir = 'path/CD4/'
+
+###############
+# Replace '-' with '_'
+adata.obs['cell_identifier'] = adata.obs['cell_identifier'].str.replace('-', '_')
+
+## Remove the last part after '_'
+def remove_last_part(cell_identifier):
+    parts = cell_identifier.split('_')
+    if len(parts) > 1:
+        return '_'.join(parts[:-1])
+    else:
+        return cell_identifier
+
+adata.obs['cell_identifier_group'] = adata.obs['cell_identifier'].apply(remove_last_part)
+
+print(adata.obs['cell_identifier_group'].head())
+
+def extract_last_part(cell_identifier_group):
+    parts = cell_identifier_group.split('_')
+    return parts[-1] if parts else 'Unknown'
+
+# Apply the function and create a new column
+adata.obs['sample_type'] = adata.obs['cell_identifier_group'].apply(extract_last_part)
+
+# Check the modified results for verification
+print(adata.obs['sample_type'].head())
+
+# View the count of each sample_group
+print(adata.obs['sample_type'].value_counts())
+
+#save
+adata.write_h5ad(os.path.join(dir, 'CD4_cells_selected_samplegroup_clusters.h5ad'))
+
+##Rstudio####
+# Convert H5ad to rds
+library(sceasy)
+library(reticulate)
+use_python("path/python3.8", required = TRUE)
+sceasy::convertFormat("path/CD4_cells_selected_samplegroup_clusters.h5ad", 
+                      from="anndata", to="seurat",
+                      outFile='path/CD4_cells_selected_samplegroup_clusters.rds')
+
+CD4_cell <- readRDS("path/CD4_cells_selected_samplegroup_clusters.rds")
+head(CD4_cell@assays$RNA@counts, 10)
+
+# Load packages
+library(Seurat)
+library(ggplot2)
+library(cowplot)
+library(viridis)
+
+# Load CD4 cell data
+CD4_cell <- readRDS("path/CD4_cells_selected_samplegroup_clusters.rds")
+setwd("path/new_clusters/CD4/CD4_plots")
+
+# Display the distribution of clusters
+table(CD4_cell$leiden_renamed)
+
+# Set the levels for the clusters
+CD4_cell$leiden_renamed <- factor(x = CD4_cell$leiden_renamed, levels = c('CD4_c0_Treg_TIGIT','CD4_c1_Trm','CD4_c2_Tn','CD4_c3_Tm','CD4_c4_CTL','CD4_c5_Treg_APOE','CD4_c6_Th17','CD4_c7_Treg_MKI67'))
+
+### Plotting (consistent color scheme) ###
+Idents(CD4_cell) <- "leiden_renamed"
+p <- DimPlot(CD4_cell, reduction = "umap", group.by = "leiden_renamed", label = FALSE, raster = FALSE) +
+  scale_color_manual(values = c(
+    my36colors <- c('#E5D2DD', '#53A85F', '#F1BB72', '#F3B1A0', '#D6E7A3', '#57C3F3', '#476D87',
+                    '#E95C59', '#E59CC4', '#AB3282', '#23452F', '#BD956A', '#8C549C', '#585658',
+                    '#9FA3A8', '#E0D4CA', '#5F3D69', '#C5DEBA', '#58A4C3', '#E4C755', '#F7F398',
+                    '#AA9A59', '#E63863', '#E39A35', '#C1E6F3', '#6778AE', '#91D0BE', '#B53E2B',
+                    '#712820', '#DCC1DD', '#CCE0F5', '#CCC9E6', '#625D9E', '#68A180', '#3A6963',
+                    '#968175'
+    ))) +
+  theme(panel.border = element_blank(),  
+        axis.line = element_blank(), 
+        axis.text = element_blank(), 
+        axis.ticks = element_blank()) + 
+  labs(title = "Celltype")
+p
+ggsave(filename = "CD4_umap.pdf", p, height = 7, width = 10)
+ggsave(filename = "CD4_umap.png", p, height = 7, width = 10)
+
+## Stacked bar plot ##
+table(CD4_cell$leiden_renamed)
+Idents(CD4_cell) <- "leiden_renamed"
+
+# Set new order for clusters
+new_order <- c('CD4_c2_Tn','CD4_c3_Tm','CD4_c1_Trm','CD4_c4_CTL','CD4_c6_Th17','CD4_c0_Treg_TIGIT','CD4_c5_Treg_APOE','CD4_c7_Treg_MKI67')
+CD4_cell$leiden_renamed <- factor(CD4_cell$leiden_renamed, levels = new_order)
+saveRDS(CD4_cell, file = "path/CD4_GEGs_selected_samplegroup_clusters_new_order.rds")
+
+Idents(CD4_cell) <- "sample_type"
+cellnum <- table(CD4_cell$sample_type, CD4_cell$leiden_renamed)
+cell.prop <- as.data.frame(prop.table(cellnum, 1))
+View(cell.prop)
+colnames(cell.prop) <- c("Group", "Celltype", "Proportion")
+table(CD4_cell$sample_type)
+
+# Set new order for sample types
+new_order <- c("PT", "Met", "MLN", "Pre", "NT")
+cell.prop$Group <- factor(cell.prop$Group, levels = new_order)
+colors <- c("#F1BB72", "#F3B1A0", "#53A85F", "#D6E7A3", "#476D87", "#E5D2DD", "#57C3F3", "#E95C59")
+
+p <- ggplot(cell.prop, aes(x = Group, y = Proportion, fill = Celltype)) +
+  geom_bar(stat = "identity", position = "stack", color = "white", size = 0.11) + 
+  scale_fill_manual(values = colors) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(colour = "black", fill = NA, size = 1),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line = element_line(colour = "black"),
+    plot.margin = unit(c(1, 1, 1, 1), "lines"),
+    axis.text.x = element_text(size = rel(1), angle = 45, hjust = 1),
+    axis.text.y = element_text(size = rel(1))
+  )
+p
+ggsave("CD4_cell_proportion_plot.pdf", p, width = 6, height = 5)
+ggsave("CD4_cell_proportion_plot.png", p, width = 6, height = 5)
+dev.off()
+
+## Bubble plot
+library(RColorBrewer)
+library(viridis)
+library(wesanderson)
+library(Seurat)
+library(ggplot2)
+
+# Load data
+CD4_cell <- readRDS("path/CD4_GEGs_selected_samplegroup_clusters_new_order.rds")
+
+# Color palette
+colors <- c("#EFE2AA", "#83B4EF", "#DBC9B3", "#8ECFF8", "#7EC0C3", "#EED0E0", "#EBAEA9", "#95A6DA", "#BFA6C9",
+            "#F5E0BA", "#AED0DF", "#89B780", "#F5D8D0", "#CB95BB", "#AAD0AC", "#D2EBC8", "#3C77AF", "#D0AFC4",
+            "#AECDE1", "#7DBFA7", "#F5D2A8", "#BBDD78", "#EE934E", "#F5CFE4", "#8FA4AE", "#FCED82", "#B383B9")
+
+pal <- wes_palette("Zissou1", 10, type = "continuous")
+
+table(CD4_cell$leiden_renamed)
+CD4_cell$leiden_renamed <- factor(x = CD4_cell$leiden_renamed, levels = c('CD4_c2_Tn','CD4_c3_Tm','CD4_c1_Trm','CD4_c4_CTL','CD4_c6_Th17','CD4_c0_Treg_TIGIT','CD4_c5_Treg_APOE','CD4_c7_Treg_MKI67'))
+Idents(CD4_cell) <- "leiden_renamed"
+
+
+# Plot DotPlot
+final.markers <- c(
+  'TCF7', 'CCR7', 'SELL', 'LEF1',
+  'IL7R', 'JUN', 'FOS', 'CD44', 'LTB',
+  'CD69', 'ITGA1', 'GPR183',
+  'CCL5', 'GZMA', 'NKG7', 'GZMH', 'GNLY', 'GZMB', 'IFNG',
+  'RPS17', 'KLRB1', 'CCR6', 'IL17A',
+  'BATF', 'TIGIT', 'TNFRSF18', 'CTLA4', 'FOXP3', 'IL2RA',
+  'ALB', 'APOE', 'APOA1', 'APOC1',
+  'MKI67', 'TOP2A', 'BIRC5', 'CDK1'
+)
+
+# Create DotPlot and rotate axes
+p <- DotPlot(CD4_cell, features = final.markers, dot.scale = 4) + 
+  RotatedAxis() +
+  coord_flip() +
+  theme(
+    axis.text.x = element_text(face="bold"),
+    axis.text.y = element_text(angle = 0, face="italic", hjust=1),
+    legend.position="right",
+    panel.border = element_rect(color = "black", size = 1.5, linetype = "solid"),
+    axis.title = element_blank() 
+  ) + 
+  scale_colour_gradientn(colours = pal) +
+  labs(title = "Cell Type Markers", y = "", x = "")
+
+# Save plot
+ggsave(filename = "CD4markers.pdf", plot = p, width = 5, height = 12)
+dev.off()
+
+
+
+
+
+
+
+

@@ -1,0 +1,80 @@
+### Activate the environment ###
+conda activate scanpy_env
+# Activate Python #
+python
+#### ####
+import scanpy as sc
+import scvi
+import os
+import math
+import itertools
+import warnings
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+adata = sc.read_h5ad('path/NKT.h5ad')
+
+cd4_idx = adata.raw.var_names.get_loc('CD4')
+cd8a_idx = adata.raw.var_names.get_loc('CD8A')
+cd8b_idx = adata.raw.var_names.get_loc('CD8B')
+cd3d_idx = adata.raw.var_names.get_loc('CD3D')
+
+cd4_expression = adata.raw.X[:, cd4_idx].toarray().flatten()
+cd8a_expression = adata.raw.X[:, cd8a_idx].toarray().flatten()
+cd8b_expression = adata.raw.X[:, cd8b_idx].toarray().flatten()
+cd3d_expression = adata.raw.X[:, cd3d_idx].toarray().flatten()
+
+mask = (cd4_expression > 0) & (cd8a_expression == 0) & (cd8b_expression == 0) & (cd3d_expression > 0)
+
+cd4_cells = adata[mask]
+dir = 'path/new_clusters/CD4/'
+cd4_cells.write(dir + 'CD4_cells.h5ad')
+# Calculate the number of cells in the subset
+num_cells = cd4_cells.n_obs
+# View the number of cells
+print(f"Number of CD4 cells: {num_cells}")
+######Extract CD8 cells######
+cd4_idx = adata.raw.var_names.get_loc('CD4')
+cd8a_idx = adata.raw.var_names.get_loc('CD8A')
+cd8b_idx = adata.raw.var_names.get_loc('CD8B')
+cd3d_idx = adata.raw.var_names.get_loc('CD3D')
+
+cd4_expression = adata.raw.X[:, cd4_idx].toarray().flatten()
+cd8a_expression = adata.raw.X[:, cd8a_idx].toarray().flatten()
+cd8b_expression = adata.raw.X[:, cd8b_idx].toarray().flatten()
+cd3d_expression = adata.raw.X[:, cd3d_idx].toarray().flatten()
+
+
+mask_cd8 = (cd4_expression == 0) & (cd8a_expression > 0) & (cd8b_expression > 0) & (cd3d_expression > 0)
+
+
+cd8_cells = adata[mask_cd8]
+dir = 'path/new_clusters/CD8/'
+cd8_cells.write(dir + 'CD8_cells.h5ad')
+# Calculate the number of cells in the subset
+num_cells = cd8_cells.n_obs
+# View the number of cells
+print(f"Number of CD8 cells: {num_cells}")
+
+##Extract NK cells####
+cd4_idx = adata.raw.var_names.get_loc('CD4')
+cd8a_idx = adata.raw.var_names.get_loc('CD8A')
+cd8b_idx = adata.raw.var_names.get_loc('CD8B')
+KLRD1_idx = adata.raw.var_names.get_loc('KLRD1')
+KLRF1_idx = adata.raw.var_names.get_loc('KLRF1')
+
+cd4_expression = adata.raw.X[:, cd4_idx].toarray().flatten()
+cd8a_expression = adata.raw.X[:, cd8a_idx].toarray().flatten()
+cd8b_expression = adata.raw.X[:, cd8b_idx].toarray().flatten()
+KLRD1_expression = adata.raw.X[:, KLRD1_idx].toarray().flatten()
+KLRF1_expression = adata.raw.X[:, KLRF1_idx].toarray().flatten()
+
+mask_nt = (cd4_expression == 0) & (cd8a_expression == 0) & (cd8b_expression == 0) & (KLRD1_expression > 0)
+
+nt_cells = adata[mask_nt]
+dir = 'path/new_clusters/NK/'
+nt_cells.write(dir + 'NK_cells.h5ad')
+# Calculate the number of cells in the subset
+num_cells = nt_cells.n_obs
+# View the number of cells
+print(f"Number of NT cells: {num_cells}")

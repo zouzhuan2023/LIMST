@@ -1,0 +1,203 @@
+﻿library(Seurat)
+library(dplyr)
+library(pheatmap)
+library(SummarizedExperiment)
+conda activate pyscenic
+  
+#human Database
+#pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/  
+#wget -c https://resources.aertslab.org/cistarget/databases/homo_sapiens/hg19/refseq_r45/mc9nr/gene_based/hg19-500bp-upstream-10species.mc9nr.genes_vs_motifs.rankings.feather
+#wget -c https://resources.aertslab.org/cistarget/databases/homo_sapiens/hg19/refseq_r45/mc9nr/gene_based/hg19-tss-centered-10kb-10species.mc9nr.genes_vs_motifs.rankings.feather
+
+#wget https://github.com/aertslab/pySCENIC/blob/master/resources/hs_hgnc_tfs.txt
+
+#https://raw.githubusercontent.com/aertslab/pySCENIC/master/resources/hs_hgnc_tfs.txt
+#wget https://resources.aertslab.org/cistarget/motif2tf/motifs-v9-nr.hgnc-m0.001-o0.0.tbl
+#remotes::install_github("satijalab/seurat-data")
+
+###################################
+library(Seurat)
+#remotes::install_github("satijalab/seurat-data")
+library(SeuratData)
+
+library(Seurat)
+table(B_GEGs_sampletype$subcelltype)
+Idents(B_GEGs_sampletype) <- "subcelltype"
+At_ABC <- subset(B_GEGs_sampletype,ident=c("At_ABC"))
+save(At_ABC,file="At_ABC.Rdata")
+write.csv(t(as.matrix(At_ABC@assays$RNA@counts)),file = "At_ABCfor.scenic.data.csv")
+
+##################################
+#######################python
+
+conda activate pyscenic
+conda activate pscenic
+
+python
+import os,sys
+import loompy as lp
+import numpy as np
+import scanpy as sc
+path= 'path/'
+x=sc.read_csv("path/At_ABCfor.scenic.data.csv");
+row_attrs = {"Gene": np.array(x.var_names),};
+col_attrs = {"CellID": np.array(x.obs_names)};
+lp.create(path+"sample.loom",x.X.transpose(),row_attrs,col_attrs);
+
+
+###
+import loompy
+
+ds = loompy.connect(path+"sample.loom")
+data_subset = ds[:, :5]  #
+genes = ds.ra.Gene[0:5] 
+cells = ds.ca.CellID[:5]  
+ds.close()
+
+
+#####################
+cd /path/At_ABC
+path='/path/' 
+tfs=$path/hs_hgnc_tfs.txt
+feather=$path/hg19-tss-centered-10kb-10species.mc9nr.genes_vs_motifs.rankings.feather
+tbl=$path/motifs-v9-nr.hgnc-m0.001-o0.0.tbl 
+input_loom=./sample.loom
+
+ls $tfs  $feather  $tbl 
+
+
+#2.1 grn
+pyscenic grn \
+--num_workers 5 \
+--output adj.sample.tsv \
+--method grnboost2 \
+sample.loom \
+$tfs 
+
+
+#2.2 cistarget
+pyscenic ctx \
+adj.sample.tsv $feather \
+--annotations_fname $tbl \
+--expression_mtx_fname $input_loom  \
+--mode "dask_multiprocessing" \
+--output reg.csv \
+--num_workers 20 \
+--mask_dropouts
+
+#2.3 AUCell
+pyscenic aucell \
+$input_loom \
+reg.csv \
+--output out_SCENIC.loom \
+--num_workers 20
+#####
+
+
+
+
+###############################################################R
+rm(list=ls())
+library(Seurat)
+library(SCopeLoomR)
+library(AUCell)
+library(SCENIC)
+library(dplyr)
+library(KernSmooth)
+library(RColorBrewer)
+library(plotly)
+library(BiocParallel)
+library(grid)
+library(ComplexHeatmap)
+library(data.table)
+library(scRNAseq)
+library(patchwork)
+library(ggplot2) 
+library(stringr)
+library(circlize)
+library(devtools)
+#########################################3.1
+#### 
+
+loom <- open_loom('out_SCENIC.loom') 
+regulons_incidMat <- get_regulons(loom, column.attr.name="Regulons") ##########33
+regulons_incidMat[1:4,1:4] 
+
+regulons <- regulonsToGeneLists(regulons_incidMat)
+regulonAUC <- get_regulons_AUC(loom,column.attr.name='RegulonsAUC')
+regulonAucThresholds <- get_regulon_thresholds(loom)
+tail(regulonAucThresholds[order(as.numeric(names(regulonAucThresholds)))])
+embeddings <- get_embeddings(loom)  
+close_loom(loom)
+
+rownames(regulonAUC)
+names(regulons)
+#### 
+library(SeuratData) 
+seurat.data = At_ABC
+rm(Neutrophils_Dele)
+
+##################################
+
+#3.3 
+sub_regulonAUC <- regulonAUC[,match(colnames(seurat.data),colnames(regulonAUC))]
+dim(sub_regulonAUC)
+seurat.data
+
+identical(colnames(sub_regulonAUC), colnames(seurat.data))
+cellClusters <- data.frame(row.names = colnames(seurat.data), 
+                           seurat_clusters = as.character(seurat.data$sample_type))
+cellTypes <- data.frame(row.names = colnames(seurat.data), 
+                        celltype = seurat.data$sample_type)
+head(cellTypes)
+head(cellClusters)
+sub_regulonAUC[1:4,1:4] 
+
+#save
+save(sub_regulonAUC,cellTypes,cellClusters,seurat.data,
+     file = 'for_rss_and_visual.Rdata')
+
+
+sub_regulonAUC <- sub_regulonAUC[, match(colnames(seurat.data), colnames(sub_regulonAUC))]
+identical(colnames(sub_regulonAUC), colnames(seurat.data)) 
+
+
+group_info <- seurat.data$sample_type
+
+if (is(sub_regulonAUC, "SummarizedExperiment")) {
+  sub_regulonAUC_matrix <- assay(sub_regulonAUC)
+} else {
+  stop("sub_regulonAUC is not a SummarizedExperiment object")
+}
+
+avg_auc <- sub_regulonAUC_matrix %>%   
+  as.data.frame() %>% 
+  t() %>%  
+  as.data.frame() %>%   
+  mutate(group = group_info) %>%  
+  group_by(group) %>%  
+  summarize_all(mean)# 
+
+avg_auc_matrix <- as.matrix(avg_auc[,-1])
+rownames(avg_auc_matrix) <- avg_auc$group
+
+new_order <- c("NT","PT", "MLN","Met")  
+new_order <- new_order[new_order %in% avg_auc$group]  
+
+
+avg_auc_matrix <- avg_auc_matrix[new_order, ]
+write.csv(avg_auc_matrix, file = "avg_auc_matrix.csv", row.names = TRUE)
+
+
+#Manually narrow the range, read CSV file into R
+selected_tf_auc_matrix <- read.csv("selected_tf_auc_matrix.csv", row.names = 1,check.names = FALSE)
+
+
+pdf("HeatmapScale.pdf", width = 15, height = 5)
+pheatmap(selected_tf_auc_matrix, scale = "column", cluster_rows = TRUE, 
+         main = "TF among groups in At_ABC", 
+        color = colorRampPalette(c("#4DBBD5B2", "white", "#E64B35B2"))(50),
+          fontsize_row = 18, 
+         fontsize_col = 16, 
+         cluster_cols = TRUE) 
+dev.off()

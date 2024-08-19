@@ -1,0 +1,150 @@
+
+## Load packages ####
+library(limma)
+library(Seurat)
+library(dplyr)
+library(magrittr)
+library(celldex)
+library(SingleR)
+library(tidyverse)
+library(stringr)
+library(harmony)
+library(ggplot2)
+library(ggpubr)
+library(AUCell) 
+library(clusterProfiler)
+library(ggsignif)
+
+## Treg scoring ####
+CD4 <- readRDS("path/CD4_cells_selected_samplegroup_clusters.rds")
+## Assign values ####
+scRNA <- CD4
+gene_list <- read.table("path/Treg.txt", header = T)
+table(scRNA@meta.data$leiden_renamed)
+Idents(scRNA) <- "leiden_renamed"
+genes_vector <- as.character(gene_list$gene)
+DefaultAssay(scRNA) <- "RNA"
+scRNA <- AddModuleScore(scRNA,
+                        features = gene_list, 
+                        ctrl = 100, 
+                        name = "AddModuleScore")
+meta = scRNA@meta.data
+colnames(scRNA@meta.data)[17] <- 'Treg_Score' 
+
+table(scRNA@meta.data$leiden_renamed)
+table(scRNA@meta.data$celltype)
+# Extract required data
+data <- FetchData(scRNA, vars = c("leiden_renamed", "Treg_Score"))
+
+## Create violin plot and add boxplot
+p <- ggplot(data, aes(x = leiden_renamed, y = Treg_Score, fill = leiden_renamed)) +
+  geom_violin(trim = FALSE) +
+  geom_boxplot(width = 0.1, fill = "white", outlier.shape = NA, color = "black") +
+  labs(title = "Treg_Score") +
+  xlab("leiden_renamed") +
+  ylab("Treg_Score") +
+  scale_fill_manual(values = c("CD4_c0_Treg_TIGIT" = "#E5D2DD", "CD4_c1_Trm" = "#53A85F", "CD4_c2_Tn" = "#F1BB72", "CD4_c3_Tm" = "#F3B1A0", "CD4_c4_CTL" = "#D6E7A3", "CD4_c5_Treg_APOE" = "#57C3F3", "CD4_c6_Th17" = "#476D87", "CD4_c7_Treg_MKI67" = "#E95C59")) +
+  theme_minimal() +
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.ticks = element_line(color = "black"),  
+        axis.line = element_line(color = "black"),  
+        strip.background = element_rect(fill = "white", colour = "white"),
+        strip.text = element_text(colour = "black"),
+        axis.text.x = element_text(size = 8, angle = 45, hjust = 1))  
+# Plot
+print(p)
+ggsave(filename = "Treg_Score.pdf", plot = p, width = 6, height = 4, dpi = 300)
+dev.off()
+
+
+## TEFF scoring ####
+rm(list=ls())
+CD4 <- readRDS("path/CD4_cells_selected_samplegroup_clusters.rds")
+## Assign values ####
+scRNA <- CD4
+## TEFF scoring
+gene_list <- read.table("path/TEFF.txt", header = T)
+table(scRNA@meta.data$leiden_renamed)
+Idents(scRNA) <- "leiden_renamed"
+genes_vector <- as.character(gene_list$gene)
+DefaultAssay(scRNA) <- "RNA"
+scRNA <- AddModuleScore(scRNA,
+                        features = gene_list, 
+                        ctrl = 100, 
+                        name = "AddModuleScore")
+## Modify metadata ####
+meta = scRNA@meta.data
+colnames(scRNA@meta.data)[17] <- 'TEFF_Score' 
+table(scRNA@meta.data$leiden_renamed)
+table(scRNA@meta.data$celltype)
+# Extract required data
+data <- FetchData(scRNA, vars = c("leiden_renamed", "TEFF_Score"))
+
+## Create violin plot and add boxplot
+p <- ggplot(data, aes(x = leiden_renamed, y = TEFF_Score, fill = leiden_renamed)) +
+  geom_violin(trim = FALSE) +
+  geom_boxplot(width = 0.1, fill = "white", outlier.shape = NA, color = "black") +
+  labs(title = "TEFF_Score") +
+  xlab("leiden_renamed") +
+  ylab("TEFF_Score") +
+  scale_fill_manual(values = c("CD4_c0_Treg_TIGIT" = "#E5D2DD", "CD4_c1_Trm" = "#53A85F", "CD4_c2_Tn" = "#F1BB72", "CD4_c3_Tm" = "#F3B1A0", "CD4_c4_CTL" = "#D6E7A3", "CD4_c5_Treg_APOE" = "#57C3F3", "CD4_c6_Th17" = "#476D87", "CD4_c7_Treg_MKI67" = "#E95C59")) +
+  theme_minimal() +
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.ticks = element_line(color = "black"),  
+        axis.line = element_line(color = "black"),  
+        strip.background = element_rect(fill = "white", colour = "white"),
+        strip.text = element_text(colour = "black"),
+        axis.text.x = element_text(size = 8, angle = 45, hjust = 1))  
+# Plot
+print(p)
+ggsave(filename = "TEFF_Score.pdf", plot = p, width = 6, height = 4, dpi = 300)
+dev.off()
+
+
+## TEX scoring ####
+rm(list=ls())
+CD4 <- readRDS("path/CD4_cells_selected_samplegroup_clusters.rds")
+## Assign values ####
+scRNA <- CD4
+gene_list <- read.table("path/TEX.txt", header = T)
+table(scRNA@meta.data$leiden_renamed)
+Idents(scRNA) <- "leiden_renamed"
+genes_vector <- as.character(gene_list$gene)
+DefaultAssay(scRNA) <- "RNA"
+scRNA <- AddModuleScore(scRNA,
+                        features = gene_list, 
+                        ctrl = 100, 
+                        name = "AddModuleScore")
+## Modify metadata ####
+meta = scRNA@meta.data
+colnames(scRNA@meta.data)[17] <- 'TEX_Score' 
+table(scRNA@meta.data$leiden_renamed)
+table(scRNA@meta.data$celltype)
+# Extract required data
+data <- FetchData(scRNA, vars = c("leiden_renamed", "TEX_Score"))
+
+## Create violin plot and add boxplot
+p <- ggplot(data, aes(x = leiden_renamed, y = TEX_Score, fill = leiden_renamed)) +
+  geom_violin(trim = FALSE) +
+  geom_boxplot(width = 0.1, fill = "white", outlier.shape = NA, color = "black") +
+  labs(title = "TEX_Score") +
+  xlab("leiden_renamed") +
+  ylab("TEX_Score") +
+  scale_fill_manual(values = c("CD4_c0_Treg_TIGIT" = "#E5D2DD", "CD4_c1_Trm" = "#53A85F", "CD4_c2_Tn" = "#F1BB72", "CD4_c3_Tm" = "#F3B1A0", "CD4_c4_CTL" = "#D6E7A3", "CD4_c5_Treg_APOE" = "#57C3F3", "CD4_c6_Th17" = "#476D87", "CD4_c7_Treg_MKI67" = "#E95C59")) +
+  theme_minimal() +
+  theme(panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.ticks = element_line(color = "black"),  
+        axis.line = element_line(color = "black"),  
+        strip.background = element_rect(fill = "white", colour = "white"),
+        strip.text = element_text(colour = "black"),
+        axis.text.x = element_text(size = 6, angle = 45, hjust = 1))  
+# Plot
+print(p)
+ggsave(filename = "TEX_Score.pdf", plot = p, width = 6, height = 4, dpi = 300)
+dev.off()

@@ -1,0 +1,103 @@
+library(tidyverse)
+library(GSVA)
+library(survminer)
+library(survival)
+rm(list=ls())
+
+data_dir <- "path/TCGA_data"
+output_dir <- "path/TCGA_out"
+
+# Load the differentially expressed genes table
+DEGs <- read.csv("path/B_DEG.csv", header = TRUE, sep = ",") 
+top_100_genes <- DEGs$X8_names[1:100]
+gene_list <- list(top100 = top_100_genes)
+
+# Read the directory of all types of cancer
+cancer_types <- list.dirs(path = data_dir, full.names = TRUE, recursive = FALSE)
+
+# Process the data for each type of cancer in a loop
+for (cancer_dir in cancer_types) {
+  cancer_type <- basename(cancer_dir)
+  cancer_output_dir <- file.path(output_dir, cancer_type)
+  
+  if (!dir.exists(cancer_output_dir)) {
+    dir.create(cancer_output_dir, recursive = TRUE)
+  }
+  
+  # Process expression data
+  expr_path <- file.path(cancer_dir, "mRNA_lncRNA", paste0(cancer_type, "_mrna_expr_fpkm.rdata"))
+  if (file.exists(expr_path)) {
+    load(expr_path)
+    expr_matrix <- as.matrix(mrna_expr_fpkm)
+    res.ssgsea <- gsva(expr_matrix, gene_list, method = "ssgsea")
+    ssgsea_scores <- data.frame(score = res.ssgsea["top100", ])
+    ssgsea_scores <- ssgsea_scores %>%
+      mutate(SampleID = gsub("(([^-]+-){2}[^-]+).*", "\\1", rownames(.))) %>%
+      group_by(SampleID) %>%
+      summarise(score = mean(score, na.rm = TRUE)) %>%
+      ungroup()
+    
+    ssgsea_scores <- as.data.frame(ssgsea_scores)
+    rownames(ssgsea_scores) <- ssgsea_scores$SampleID
+    ssgsea_scores$SampleID <- NULL
+  }
+  
+  # Process clinical data
+  clinical_path <- file.path(cancer_dir, "Clinical", paste0(cancer_type, "_clinicalXML_followUp.rdata"))
+  if (file.exists(clinical_path)) {
+    load(clinical_path)
+    clinical_data <- clinicalXML_followUp[, c('bcr_followup_barcode', 'vital_status', 'days_to_last_followup', 'days_to_death')]
+    clinical_data <- clinical_data %>%
+      mutate(days_survivin = coalesce(days_to_last_followup, days_to_death)) %>%
+      select(-days_to_last_followup, -days_to_death) %>%
+      filter(!is.na(days_survivin)) %>%
+      mutate(bcr_followup_barcode = gsub("-[^-]*$", "", bcr_followup_barcode)) %>%
+      group_by(bcr_followup_barcode) %>%
+      slice_max(order_by = days_survivin) %>%
+      ungroup() %>%
+      distinct(bcr_followup_barcode, .keep_all = TRUE)
+    
+    clinical_data <- as.data.frame(clinical_data)
+    rownames(clinical_data) <- clinical_data$bcr_followup_barcode
+    clinical_data$bcr_followup_barcode <- NULL
+    
+    score_clinical_data <- merge(clinical_data, ssgsea_scores, by = "row.names", all.x = TRUE)
+    score_clinical_data <- na.omit(score_clinical_data)
+    
+    median_score <- median(score_clinical_data$score, na.rm = TRUE)
+    score_clinical_data <- score_clinical_data %>%
+      mutate(risk = if_else(score > median_score, "high_risk", "low_risk"))
+    
+    save(score_clinical_data, file = file.path(cancer_output_dir, paste0("score_clinical_data_", cancer_type, ".rdata")))
+    
+    result_wilcox <- score_clinical_data %>%
+      summarise(
+        Dead = mean(score[vital_status == "Dead"], na.rm = TRUE),
+        Alive = mean(score[vital_status == "Alive"], na.rm = TRUE),
+        p_value = wilcox.test(score[vital_status == "Dead"], score[vital_status == "Alive"])$p.value
+      ) %>%
+      mutate(cancer = cancer_type) %>%
+      select(cancer, Dead, Alive, p_value)
+    
+    save(result_wilcox, file = file.path(cancer_output_dir, paste0("result_wilcox_", cancer_type, ".rdata")))
+    
+    # Survival analysis
+    score_clinical_data <- score_clinical_data %>%
+      mutate(vital_status_rename = case_when(
+        vital_status == "Alive" ~ 0,
+        vital_status == "Dead" ~ 1,
+        TRUE ~ NA_integer_))
+    
+    fit <- survfit(Surv(days_survivin, vital_status_rename) ~ risk, data = score_clinical_data)
+    
+    save(fit, file = file.path(cancer_output_dir, paste0("fit_", cancer_type, ".rdata")))
+    p <- ggsurvplot(fit, 
+                    data = score_clinical_data,
+                    pval = TRUE,
+                    xlab = "Follow up time(d)",
+                    legend = c(0.8,0.75))
+    save(p, file = file.path(cancer_output_dir, paste0("p_", cancer_type, ".rdata")))
+    
+    ggsave(file.path(cancer_output_dir, paste0("survival_", cancer_type, ".pdf")), p$plot, width = 5, height = 4)
+  }
+}

@@ -1,0 +1,227 @@
+## Activate the environment####
+conda activate palantir
+##load python#####
+python
+##Load the environment####
+import palantir
+import palantir as pa
+import scanpy as sc
+import numpy as np
+import pandas as pd
+import os
+import matplotlib
+import matplotlib.pyplot as plt
+import seaborn as sns
+import warnings
+## Load data
+adata = sc.read_h5ad('path/CD4_cells_selected_samplegroup_clusters.h5ad')
+## Load raw quality-controlled pan-cancer data
+adata_all = sc.read_h5ad('path/adata_qc.h5ad')
+## Extract cells from adata.obs as a new raw matrix####
+cell_ids = adata.obs_names
+ad = adata_all[cell_ids].copy()
+leiden_data = adata.obs['leiden']
+celltype_data = adata.obs['celltype']
+leiden_renamed_data = adata.obs['leiden_renamed']
+ad.obs['leiden'] = leiden_data
+ad.obs['celltype'] = celltype_data
+ad.obs['leiden_renamed'] = leiden_renamed_data
+## Load and remove unnecessary raw data####
+import gc
+del adata_all
+del adata
+## Perform standard operations according to the Palantir workflow####
+## Normalization and dimensionality reduction####
+sc.pp.normalize_per_cell(ad)
+palantir.preprocess.log_transform(ad)
+sc.pp.highly_variable_genes(ad, min_mean=0.0125, max_mean=3, min_disp=0.5)
+sc.pp.pca(ad)
+ad
+dm_res = palantir.utils.run_diffusion_maps(ad)
+ms_data = palantir.utils.determine_multiscale_space(ad)
+ms_data
+sc.pp.neighbors(ad)
+sc.tl.umap(ad)
+
+sc.pl.embedding(
+    ad,
+    basis="umap",
+    frameon=False,
+)
+ad
+plt.savefig("path/embedding.png")
+plt.savefig("path/embedding.pdf")
+
+## Plot UMAP####
+plt.figure(figsize=(40, 80)) 
+sc.pl.umap(
+    ad,  
+    color='leiden_renamed',  
+    legend_loc='on data',  
+    title='UMAP',
+    size=1,  
+    frameon=False,  
+    legend_fontoutline=1,  
+    show=False  
+)
+
+plt.tight_layout()
+
+## Save####
+plt.savefig("path/umap.png")
+plt.savefig("path/umap.pdf")
+
+
+## Use MAGIC to handle dropout genes
+imputed_X = palantir.utils.run_magic_imputation(ad)
+sc.pl.embedding(
+    ad,
+    basis="umap",
+    layer="MAGIC_imputed_data",
+    color=["SELL", "CCR7", "LEF1", "IL7R", "CD69", "FOXP3", "IL2RA", "NKG7"],
+    frameon=False,
+)
+# Save the plot
+plt.savefig("path/imputedgene.png")
+plt.savefig("path/imputedgene.pdf")
+
+# Plot diffusion components
+palantir.plot.plot_diffusion_components(ad)
+# Save the plot
+plt.savefig("path/component.png")
+plt.savefig("path/component.pdf")
+
+## Save data
+ad.write('path/ad_CD4_imputed.h5ad')
+
+#### Diffusion map dimensionality reduction ####
+sc.pp.neighbors(ad, use_rep='X_pca')
+sc.tl.diffmap(ad)
+## Plot diffusion map ##
+sc.pl.embedding(ad, 'diffmap', color=['leiden_renamed'])
+plt.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize='small')
+plt.gcf().set_size_inches(6, 4)
+plt.subplots_adjust(left=0.1, right=0.8, top=0.9, bottom=0.1)
+plt.tight_layout()
+## Save plot ##
+plt.savefig("path/diffmap.png")
+plt.savefig("path/diffmap.pdf")
+
+## Switch to R to find the starting cells####
+# Load necessary libraries
+library(sceasy)
+library(reticulate)
+# Set Python path
+use_python("path/python3.8", required = TRUE)
+
+# Convert H5ad to rds
+sceasy::convertFormat("path/CD4_cells_selected_samplegroup_clusters.h5ad", 
+                      from="anndata", to="seurat",
+                      outFile='path/CD4_cells_selected_samplegroup_clusters.rds')
+
+## Load data
+library(Seurat)
+palantir <- readRDS("path/CD4_cells_selected_samplegroup_clusters.rds")
+scobj <- palantir
+Idents(scobj) = 'CellType'
+p = DimPlot(scobj, reduction = 'diffmap_')
+p
+CellSelector(plot = p)
+
+## Define starting cells based on previous subpopulation
+## Starting point
+[ [1] "PC_GSE143791_GSM4274700_Met_AGCTTGATCTTATCTG"
+
+## Continue running Palantir in Python using the identified starting cell
+
+start_cell = "PC_GSE143791_GSM4274700_Met_AGCTTGATCTTATCTG"
+pr_res = palantir.core.run_palantir(
+    ad, start_cell, num_waypoints=500)
+
+### Select cell groups ###
+pr_res.branch_probs.columns
+leiden_group = ad.obs.loc['CC_GSE208653_GSM6360686_PT_GTAACACTCGGTAGGA', 'leiden_renamed']
+print(f"Cell belongs to Leiden group: {leiden_group}")
+# Cell belongs to Leiden group: CD4_c7_Treg_MKI67
+
+leiden_group = ad.obs.loc['HC_HRA001261_HRS280171_PT_TGGGATTTCGATTCCC', 'leiden_renamed']
+print(f"Cell belongs to Leiden group: {leiden_group}")
+# Cell belongs to Leiden group: CD4_c3_Tm
+
+leiden_group = ad.obs.loc['HC_HRA001261_HRS280270_PT_CTTCCGACAGTGTATC', 'leiden_renamed']
+print(f"Cell belongs to Leiden group: {leiden_group}")
+# Cell belongs to Leiden group: CD4_c4_CTL
+
+## Rerun and define the endpoint cells properly
+start_cell = "PC_GSE143791_GSM4274700_Met_AGCTTGATCTTATCTG"
+terminal_states = pd.Series(
+    ["CD4_c7_Treg_MKI67", "CD4_c3_Tm", "CD4_c4_CTL"],
+    index=["CC_GSE208653_GSM6360686_PT_GTAACACTCGGTAGGA", "HC_HRA001261_HRS280171_PT_TGGGATTTCGATTCCC", "HC_HRA001261_HRS280270_PT_CTTCCGACAGTGTATC"],
+)
+pr_res = palantir.core.run_palantir(
+    ad, start_cell, num_waypoints=500,terminal_states=terminal_states)
+## Plot results
+palantir.plot.plot_palantir_results(ad)
+plt.savefig("path/palantir_results.png")
+plt.savefig("path/palantir_results.pdf")
+
+# Plot trajectory
+masks = palantir.presults.select_branch_cells(ad)
+palantir.plot.plot_trajectory(ad, "CD4_c4_CTL")
+
+plt.savefig("path/trajectory1.png")
+plt.savefig("path/trajectory1.pdf")
+
+palantir.plot.plot_trajectory(ad, "CD4_c7_Treg_MKI67")
+
+plt.savefig("path/trajectory2.png")
+plt.savefig("path/trajectory2.pdf")
+
+palantir.plot.plot_trajectory(ad, "CD4_c3_Tm")
+
+plt.savefig("path/trajectory3.png")
+plt.savefig("path/trajectory3.pdf")
+
+## Plot trajectories with different colors####
+palantir.plot.plot_trajectory(
+    ad,
+    "CD4_c4_CTL",
+    cell_color="palantir_entropy",
+    n_arrows=10,
+    color="red",
+    scanpy_kwargs=dict(cmap="viridis"),
+    arrowprops=dict(arrowstyle="-|>,head_length=.5,head_width=.5"),
+)
+plt.savefig("path/trajectory4.png")
+plt.savefig("path/trajectory4.pdf")
+
+palantir.plot.plot_trajectory(
+    ad,
+    "CD4_c7_Treg_MKI67",
+    cell_color="palantir_entropy",
+    n_arrows=10,
+    color="red",
+    scanpy_kwargs=dict(cmap="viridis"),
+    arrowprops=dict(arrowstyle="-|>,head_length=.5,head_width=.5"),
+)
+plt.savefig("path/trajectory5.png")
+plt.savefig("path/trajectory5.pdf")
+
+### Gene expression trends ####
+
+gene_trends = palantir.presults.compute_gene_trends(
+    ad,
+    expression_key="MAGIC_imputed_data",
+)
+## Select genes of interest####
+genes = ["SELL", "CCR7", "NKG7", "FOXP3"]
+palantir.plot.plot_gene_trends(ad, genes)
+plt.savefig("path/genetrend.png")
+plt.savefig("path/genetrend.pdf")
+
+## Plot heatmap ####
+palantir.plot.plot_gene_trend_heatmaps(ad, genes)
+plt.savefig("path/geneheat.png")
+plt.savefig("path/geneheat.pdf")
+
+

@@ -1,0 +1,336 @@
+######################################################
+#####################################
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+import scanpy as sc
+import numpy as np
+import os
+from tqdm import tqdm
+import scvi
+import math
+import itertools
+import warnings
+import anndata as ad
+
+path='/path/'
+df = pd.read_csv(path + 'table_nubmer.csv')
+categories = df['Category']
+Fn = df['Fn']
+Vn = df['Vn']
+bar_width = 2  
+index = np.arange(len(categories)) * 5 
+plt.figure(figsize=(14, 8))  
+bars1 = plt.bar(index - bar_width/2, Fn, width=bar_width, label='Fn', color='#1F77B4')
+bars2 = plt.bar(index + bar_width/2, Vn, width=bar_width, label='Vn', color='coral')
+plt.xlabel('Category', fontsize=14)
+plt.ylabel('Nubmer of samples', fontsize=14)
+plt.xticks(index, categories, fontsize=12, rotation=45) 
+def add_labels(bars):
+    for bar in bars:
+        height = bar.get_height()
+        if height != 0:  
+            plt.text(bar.get_x() + bar.get_width() / 2, height, f'{height}', ha='center', va='bottom')
+add_labels(bars1)
+add_labels(bars2)
+plt.xticks(fontsize=12)
+plt.yticks(fontsize=12)
+plt.gca().spines['top'].set_visible(False)
+plt.gca().spines['right'].set_visible(False)
+plt.legend()
+plt.savefig(path + 'comparison_bar_chart2.pdf', format='pdf', bbox_inches='tight')
+
+
+
+###############################################
+############################
+import scanpy as sc
+import numpy as np
+import os
+from tqdm import tqdm
+import scanpy as sc
+import scvi
+import os
+import math
+import itertools
+import warnings
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import pandas as pd
+import anndata as ad
+
+colors = [
+  "#1F77B4",
+  "#7ABFE2",
+  "#E377C2",
+  "#fad1e0",
+  "#FFBB78",
+  "#FF7F0E",
+  '#ad5f2c',
+  "#279E68",
+  "#caeac2",
+  "#65c2a4",
+  "#98DF8A",
+  "#FF9896",
+  "#B1ADD6",
+  "#C9CBE6","#E2E1F0","#5B5C89","#7576A1","#E64759"
+]
+
+adata = sc.read_h5ad('/path/adatarename.h5ad')
+path = '/path/'
+cell_types = adata.obs['celltype'].unique()
+palette = dict(zip(cell_types, colors))
+plt.close('all')
+plt.rcParams['savefig.dpi'] = 600
+plt.figure(figsize=(20, 10))
+sc.pl.umap(adata, color='celltype', palette=colors, legend_loc='right margin', title='UMAP', show=False)
+plt.tight_layout()
+plt.savefig(path + "umap_celltype.png", bbox_inches='tight')
+
+####################################################
+##################################
+import scanpy as sc
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+import os
+
+adata = sc.read_h5ad('/path/adatarename.h5ad')
+path = '/path/'
+
+marker_genes = [
+  "MS4A1",  "CD79A", "CD19","IGKC", 
+  "DCN",  "FBLN1", "COL1A1", "ACTA2", 
+  "COL2A1", "COL9A1", "HAPLN1", "SCRG1",
+  "PLVAP", "CLDN5", "CDH5", "VWF", 
+  "KRT8", "KRT19", "KRT18",  "EPCAM",
+  "SFTPC", "SFTPB", "NAPSA", "MUC1",
+  "TPSAB1", "TPSB2", "CPA3", "MS4A2",
+  "C1QC", "C1QA", "CD68", "LYZ", "CD14",
+  "NKG7", "KLRD1",  "TRAC", "CD3D", 
+  "FCGR3B", "CXCL8", "S100A8", "S100A9", 
+  "MMP9", "ACP5", "CTSK", "OSCAR",
+  "SLC5A12","GLYAT", "SLC17A3", "LRP2"
+]
+plt.rcParams.update({'font.size': 12})
+
+dotplot = sc.pl.dotplot(
+  adata, 
+  marker_genes, 
+  groupby='celltype', 
+)  
+
+fig = plt.gcf()
+fig.set_size_inches(16, 8)  
+
+os.makedirs(path, exist_ok=True)
+plt.savefig(os.path.join(path, "dotplot.pdf"), bbox_inches='tight')
+
+
+######################################################
+#######################################
+import scanpy as sc
+import numpy as np
+import os
+from tqdm import tqdm
+import scanpy as sc
+import scvi
+import os
+import math
+import itertools
+import warnings
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import pandas as pd
+import anndata as ad
+import matplotlib.pyplot as plt
+
+adata = sc.read_h5ad('/path/adatarename.h5ad')
+path = '/path/'
+
+celltype_counts = adata.obs['celltype'].value_counts()  
+colors = ["#7ABFE2","#A8D5E9","#F2C76C","#FFD19C","#fad1e0","#b982bc","#ad5f2c","#FDAE6B",
+"#caeac2","#65c2a4","#ED7E8B","#E2E1F0","#B1ADD6","#C9CBE6","#E2E1F0","#5B5C89","#7576A1","#E64759"]
+
+plt.figure(figsize=(10, 8))
+wedges, texts, autotexts = plt.pie(
+    celltype_counts,
+    labels=None, 
+    colors=colors,
+    autopct='%1.1f%%',
+    pctdistance=0.75,  
+    shadow=False,
+    startangle=90,
+    #counterclock=False,
+    textprops={'fontsize': 12}  
+)
+plt.axis('equal')
+plt.legend(wedges, celltype_counts.index, loc="center left", bbox_to_anchor=(1, 0, 0.5, 1), fontsize=15, title_fontsize='13')
+
+path = '/path/'
+plt.savefig(path + 'celltype_distribution_no_labels.pdf', format='pdf', bbox_inches='tight')
+
+##########################
+import scanpy as sc
+import numpy as np
+import os
+from tqdm import tqdm
+import scanpy as sc
+import scvi
+import os
+import math
+import itertools
+import warnings
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+adata = sc.read_h5ad('/path/adata_PCA.h5ad')
+path = '/path/'
+cell_identifiers = adata.obs['cell_identifier']
+prefixes = cell_identifiers.apply(lambda x: x.split('_')[0])
+adata.obs['Group'] = prefixes
+
+print(adata.obs[['cell_identifier', 'Group']])
+
+group_counts = adata.obs['Group'].value_counts()
+
+print(group_counts)
+colors_Group = [
+'dodgerblue','palegreen',"#1b79af",'#6A3D9A','gold','lightsalmon',"#fad1e0",'#7CE3D8',"#f57c6e","#71B7ED",'#FF7F00','#C68EBB',"#E7A649","#FAE69E","#6466A5","#3d505a","#E7481B","#1b79af","#179b73","#8da0cb","#bbe173","#970030","#3d4a78","#f6e36d","#ad5f2c","#E2E1F0","#D65190","darkblue","#E64759"
+]
+
+
+path = '/path/'
+sc.pp.neighbors(adata, use_rep='X_pca')
+sc.tl.umap(adata)
+sc.tl.tsne(adata)
+#######################################
+path= '/path/'
+plt.close('all')
+plt.rcParams['savefig.dpi'] = 600
+plt.figure(figsize=(20, 10))
+sc.pl.umap(adata, color='Group', palette=colors_Group, legend_loc='right margin', title='UMAP', show=False)
+plt.tight_layout()
+plt.savefig(path + "uamp_Group.png", bbox_inches='tight')
+
+
+
+#########################
+
+import scanpy as sc
+import numpy as np
+import os
+from tqdm import tqdm
+import scanpy as sc
+import scvi
+import os
+import math
+import itertools
+import warnings
+import numpy as np
+import pandas as pd
+import anndata as ad
+import matplotlib.pyplot as plt
+
+adata = sc.read_h5ad('/path/adatarename.h5ad')
+cell_identifiers = adata.obs['cell_identifier']
+prefixes = cell_identifiers.apply(lambda x: x.split('_')[0])
+adata.obs['Group'] = prefixes
+print(adata.obs[['cell_identifier', 'Group']])
+group_counts = adata.obs['Group'].value_counts()
+print(group_counts)
+data = adata.obs[['batch', 'Group']]
+sample_counts = data.groupby('Group')['batch'].nunique()
+sample_counts
+colors_Group = [
+'dodgerblue','palegreen',"#1b79af",'#6A3D9A','gold','lightsalmon',"#fad1e0",'#7CE3D8',"#f57c6e","#71B7ED",'#FF7F00','#C68EBB',"#E7A649","#FAE69E","#6466A5","#3d505a","#E7481B","#1b79af","#179b73","#8da0cb","#bbe173","#970030","#3d4a78","#f6e36d","#ad5f2c","#E2E1F0","#D65190","darkblue","#E64759"
+]
+
+path= '/path/'
+plt.close('all')
+plt.rcParams['savefig.dpi'] = 600
+plt.figure(figsize=(20, 10))
+sc.pl.umap(adata, color='Group', palette=colors_Group, legend_loc='right margin', title='UMAP', show=False)
+plt.tight_layout()
+plt.savefig(path + "uamp_Group.png", bbox_inches='tight')
+
+
+
+#########################################################FigureS1 C
+import matplotlib.pyplot as plt
+import pandas as pd
+import numpy as np
+adata = sc.read_h5ad('/path/adatarename.h5ad')
+
+adata.obs['cell_identifier'] = adata.obs['cell_identifier'].str.replace('-', '_')
+def remove_last_part(cell_identifier):
+    parts = cell_identifier.split('_')
+    if len(parts) > 1:
+        return '_'.join(parts[:-1])
+    else:
+        return cell_identifier
+adata.obs['cell_identifier'] = adata.obs['cell_identifier'].apply(remove_last_part)
+print(adata.obs['cell_identifier'].head())
+
+def extract_last_part(cell_identifier):
+    parts = cell_identifier.strip().split('_')  
+    return parts[-1] if parts else 'Unknown'
+adata.obs['sample_type'] = adata.obs['cell_identifier'].apply(extract_last_part)
+
+print(adata.obs['sample_type'].head())
+print(adata.obs['sample_type'].value_counts())
+
+adata_df = adata.obs[['sample_type', 'celltype']]
+
+grouped = adata_df.groupby(['sample_type', 'celltype']).size().unstack(fill_value=0)
+
+total_cells_per_group = grouped.sum(axis=1)
+proportions = grouped.div(total_cells_per_group, axis=0)
+
+###################################################################################
+import matplotlib.pyplot as plt
+
+colors  = [
+"#1F77B4",
+"#7ABFE2",
+"#E377C2",
+"#fad1e0",
+"#FFBB78",
+"#FF7F0E",
+'#ad5f2c',
+"#279E68",
+"#caeac2",
+"#65c2a4",
+"#98DF8A",
+"#FF9896",
+"#B1ADD6",
+]
+
+fig, ax = plt.subplots(figsize=(8, 6))
+bottom = np.zeros(len(proportions))
+
+for i, celltype in enumerate(proportions.columns):
+    ax.bar(proportions.index, proportions[celltype], bottom=bottom, color=colors[i % len(colors)], label=celltype, width=0.8)
+    bottom += proportions[celltype].values
+
+ax.set_ylabel('Cell Types')
+ax.set_xlabel('Proportion') 
+#ax.set_title('Cell Type Proportions by sample_type')
+ax.legend(title='Cell Types', bbox_to_anchor=(1.05, 1), loc='upper left')
+plt.xticks(rotation=45)
+plt.tight_layout()
+
+ax.spines['top'].set_visible(False)
+ax.spines['right'].set_visible(False)
+
+plt.savefig('/path/Histogram.pdf')
+
+
+
+
+
+

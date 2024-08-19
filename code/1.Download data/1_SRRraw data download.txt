@@ -1,0 +1,124 @@
+####Xshell####
+cd /mnt/sdb8t/pancancer/script
+echo "" > download_script.sh
+vim download_script.sh
+
+#!/bin/bash#
+openssh=/home/ps/.aspera/connect/etc/asperaweb_id_dsa.openssh
+download_dir=/path/
+
+echo -e "\n\n\n 000# ascp Download SRA !!! \n\n\n"
+date
+mkdir -p "$download_dir/rawdata/"
+cd "$download_dir/rawdata/"
+pwd
+
+download_links=(
+    "era-fasp@fasp.sra.ebi.ac.uk:/vol1/srr/SRR170/055/SRR17075055"
+)
+
+for download_link in "${download_links[@]}"; do
+  echo "Downloading $download_link"
+  ( ascp -QT -l 500m -P33001 -k 1 -i "$openssh" "$download_link" ./ & )
+done
+
+chmod +x download_script.sh
+####Run scripts in the background with nohup####
+nohup ./download_script.sh &> download.log &
+tail -f download.log
+
+####SRR decompression####
+
+#!/bin/bash
+rawdata_path="/path/"
+output_path="/path/"
+
+declare -A file_folder_mapping=(
+    ["SRR17075055"]="GSM5708993"
+    ["SRR17075056"]="GSM5708993"
+    ["SRR17075057"]="GSM5708993"
+    ["SRR17075058"]="GSM5708993"
+    ["SRR17075059"]="GSM5708993"
+    ["SRR17075060"]="GSM5708993"
+    ["SRR17075061"]="GSM5708993"
+)
+	
+cd "$rawdata_path"
+
+files=("SRR17075055")
+
+#### Loop through each document###
+for file in "${files[@]}"; do
+
+    mv "$file" "$file.sra"
+
+    
+    parallel-fastq-dump -t 12 -O ./ --split-files --gzip -s "$file.sra"
+
+    
+    folder_name="${file_folder_mapping[$file]}"
+    folder_path="$output_path/$folder_name"
+
+    
+    mkdir -p "$folder_path"
+
+
+    mv "${file}_1.fastq.gz" "$folder_path/${file}_1.fastq.gz"
+    mv "${file}_2.fastq.gz" "$folder_path/${file}_2.fastq.gz"
+    mv "${file}_3.fastq.gz" "$folder_path/${file}_3.fastq.gz"
+done
+
+####STAR SOLO####
+
+#!/bin/bash
+##==== parameters ====##
+## Paths##
+inPath="/path/"
+outPath="/path/"
+
+## STAR config##
+refIndex="/path/GRCh38-2020-A"
+CPU=16
+
+## barcode config##
+whiteList="/path/737K-august-2016.txt" ## 10x 3'v2
+barcode_setting="--soloCBstart 1 --soloCBlen 16 --soloUMIstart 17 --soloUMIlen 10 --soloBarcodeReadLength 0"
+
+## barcode config ##        10x 3'v3
+#whiteList="/path/3M-february-2018.txt" ## 10x 3'v3
+#barcode_setting="--soloCBstart 1 --soloCBlen 16 --soloUMIstart 17 --soloUMIlen 12 --soloBarcodeReadLength 0"
+
+## output config##
+soloFeatures="Gene Velocyto" 
+outSAMSettings="--outSAMtype BAM Unsorted --outSAMunmapped Within" 
+
+inFASTQ_cDNA_list=()
+inFASTQ_barcode_list=()
+
+for sampleID in SRR25887319_GSM7755932_wu32_scRNA-seq_Homo_sapiens_RNA-Seq; do
+
+    inFASTQ_cDNA_list+=("$inPath/${sampleID}_2.fastq.gz")
+    inFASTQ_barcode_list+=("$inPath/${sampleID}_1.fastq.gz")
+done
+
+inFASTQ_cDNA=$(IFS=", "; echo "${inFASTQ_cDNA_list[*]}")
+inFASTQ_barcode=$(IFS=", "; echo "${inFASTQ_barcode_list[*]}")
+
+echo "inFASTQ_cDNA=$inFASTQ_cDNA"
+echo "inFASTQ_barcode=$inFASTQ_barcode"
+
+outPrefix="$outPath/combinedSample"
+mkdir -p $outPrefix
+
+##==== cmds ====##
+STAR --genomeDir $refIndex \
+--runThreadN $CPU \
+$outSAMSettings \
+--outFileNamePrefix $outPrefix/ \
+--readFilesIn $inFASTQ_cDNA $inFASTQ_barcode \
+--readFilesCommand zcat \
+--soloType CB_UMI_Simple \
+$barcode_setting \
+--soloCBwhitelist $whiteList \
+--soloCellFilter EmptyDrops_CR \
+--soloFeatures $soloFeatures

@@ -1,0 +1,206 @@
+
+conda activate scanpy_env
+vim /path/QC_0309.py
+import scanpy as sc
+import numpy as np
+import os
+from tqdm import tqdm
+
+def preprocess_data(folder_path):
+    # Load the data
+    adata = sc.read_10x_mtx(folder_path, var_names='gene_symbols', cache=False)
+    
+    # Predict doublets using scrublet with a fixed random state for reproducibility
+    sc.external.pp.scrublet(adata, random_state=112)
+    
+    # Filter out predicted doublets
+    # Ensure 'predicted_doublet' is the correct column name added by scrublet to adata.obs
+    if 'predicted_doublet' in adata.obs.columns:
+        adata = adata[adata.obs['predicted_doublet'] == False].copy()
+    else:
+        print("Warning: 'predicted_doublet' column not found in adata.obs. Doublet filtering skipped.")
+    
+    # Continue with further preprocessing
+    sc.pp.filter_cells(adata, min_genes=200)
+    sc.pp.filter_genes(adata, min_cells=3)
+    
+    # Identify mitochondrial genes - adjusted for human data where mitochondrial genes start with 'MT-'
+    adata.var['mt'] = adata.var_names.str.startswith('MT-')  # Adjusted for human mitochondrial gene nomenclature
+    
+    sc.pp.calculate_qc_metrics(adata, qc_vars=['mt'], percent_top=None, log1p=False, inplace=True)
+    
+    # Filter based on n_genes_by_counts and pct_counts_mt
+    upper_lim = np.quantile(adata.obs.n_genes_by_counts.values, .98)
+    adata = adata[adata.obs.n_genes_by_counts < upper_lim].copy()
+    adata = adata[adata.obs.pct_counts_mt < 10].copy()
+    
+    return adata
+
+
+data_path = '/path/pancancer_data/'
+cancer_types = os.listdir(data_path)
+adata_objects = []
+
+for cancer_type in cancer_types:
+    cancer_path = os.path.join(data_path, cancer_type)
+    gsm_numbers = os.listdir(cancer_path)
+    for gsm_number in gsm_numbers:
+        gsm_path = os.path.join(cancer_path, gsm_number)
+        sample_types = os.listdir(gsm_path)
+        for sample_type in tqdm(sample_types, desc=f"Processing {cancer_type}_{gsm_number}"):
+            folder_path = os.path.join(gsm_path, sample_type)
+            try:
+                adata = preprocess_data(folder_path)
+                prefix = f"{cancer_type}_{gsm_number}_{sample_type}_"
+                adata.obs_names = [prefix + barcode for barcode in adata.obs_names]
+                adata_objects.append(adata)
+            except Exception as e:
+                print(f"Error processing {folder_path}: {e}")
+
+if adata_objects:
+    all_data = sc.concat(adata_objects,join='outer')
+    output_path = '/path/adata_qc.h5ad'
+    all_data.write_h5ad(output_path)
+else:
+    print("No data processed.")
+########################################################################
+
+python
+
+import scanpy as sc
+import scvi
+import os
+import math
+import itertools
+import warnings
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+adata = sc.read_h5ad('/path/leiden_data.h5ad')
+path = '/path/new_result/'
+
+adata.obs['cell_identifier'] = adata.obs.index
+def extract_batch(cell_identifier):
+    parts = cell_identifier.split('_')
+    return parts[2] if len(parts) > 2 else 'Unknown'
+adata.obs['batch'] = adata.obs['cell_identifier'].apply(extract_batch)
+
+batch_counts = adata.obs['batch'].value_counts()
+
+batches_to_keep = adata.obs['batch'].value_counts()[lambda x: x >= 200].index
+adata = adata[adata.obs['batch'].isin(batches_to_keep)].copy()
+
+#Standardized data
+adata.layers['counts'] = adata.X.copy()
+sc.pp.normalize_total(adata, target_sum=1e4)
+sc.pp.log1p(adata)
+adata.raw = adata
+####################
+import scipy.sparse
+df = pd.DataFrame(adata.X[:5, :5].todense() if scipy.sparse.issparse(adata.X) else adata.X[:5, :5], 
+                  index=adata.obs_names[:5], 
+                  columns=adata.var_names[:5])
+print(df)
+
+sc.pp.highly_variable_genes(adata, min_mean=0.0125, max_mean=3, min_disp=0.5)
+adata = adata[:, adata.var.highly_variable]    
+sc.pp.regress_out(adata, ['total_counts', 'pct_counts_mt'])  
+sc.pp.scale(adata, max_value=10)
+
+
+sc.tl.pca(adata, svd_solver='arpack')
+sc.pl.pca_variance_ratio(adata, log=True)
+plt.savefig(path+"pca_variance.pdf")
+adata.write(path + 'adata_PCA.h5ad')
+adata = sc.read_h5ad('/path/adata_PCA.h5ad')
+path = '/patht/'
+
+###KNBB
+####sc.external.pp.bbknn(adata, batch_key= "batch")
+####SCVI
+scvi.model.SCVI.setup_anndata(adata, layer = "counts", categorical_covariate_keys=["batch"], continuous_covariate_keys=['pct_counts_mt', 'total_counts'])
+model = scvi.model.SCVI(adata)
+model.train()  
+adata.obsm['X_scVI'] = model.get_latent_representation()
+adata.layers['scvi_normalized'] = model.get_normalized_expression(library_size = 1e4)  
+adata.write(path + 'scvi.h5ad')
+adata = sc.read_h5ad('/path/scvi.h5ad')
+####
+sc.pp.neighbors(adata, use_rep = 'X_scVI')
+sc.tl.umap(adata)
+sc.tl.tsne(adata)
+sc.tl.leiden(adata, resolution = 0.3)
+leiden_counts = adata.obs['leiden'].value_counts()
+print(leiden_counts) 
+adata.write(path + 'leiden_data.h5ad')
+
+####umap and tsne###
+path= '/path/'
+plt.close('all')
+plt.rcParams['savefig.dpi'] = 300
+plt.figure(figsize=(20, 10))
+sc.pl.tsne(adata, color='leiden', legend_loc='right margin',show=False)
+plt.tight_layout()
+plt.savefig(path+"tsne_leiden.png",bbox_inches='tight')
+
+plt.close('all')
+plt.rcParams['savefig.dpi'] = 300
+plt.figure(figsize=(20, 10))
+sc.pl.umap(adata, color='leiden', legend_loc='right margin',show=False)
+plt.tight_layout()
+plt.savefig(path+"umap_leiden.png",bbox_inches='tight')
+adata.write(path + 'all_data_processed.h5ad')
+####
+adata = sc.read_h5ad('/path/leiden_data.h5ad')
+path = '/path/new_result/'
+###
+sc.tl.rank_genes_groups(adata, 'leiden', method='wilcoxon')
+sc.pl.rank_genes_groups(adata, n_genes=25, sharey=False)
+adata.write(path + 'data_GEGs.h5ad')
+
+############################################
+
+conda activate scanpy_env
+import scanpy as sc
+import scvi
+import os
+import math
+import itertools
+import warnings
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+adata = sc.read_h5ad('/path/leiden_data.h5ad')
+path = '/path/new_result/'
+sc.tl.rank_genes_groups(adata, 'leiden', method='wilcoxon')
+sc.pl.rank_genes_groups(adata, n_genes=25, sharey=False)
+adata.write(path + 'data_GEGs.h5ad')
+
+nohup python /path/DEG.py > /path/output.log 2>&1 &
+ps -ef | grep python
+tail -f /path/output.log
+
+
+adata = sc.read_h5ad('/path/data_GEGs.h5ad')
+path = '/path/new_result/'
+result = adata.uns['rank_genes_groups']
+
+
+groups = result['names'].dtype.names
+
+
+all_groups_df = pd.DataFrame()
+
+
+for group in groups:
+    group_data = pd.DataFrame({
+        f"{group}_{key}": result[key][group]
+        for key in ['names', 'pvals', 'logfoldchanges', 'scores']  
+    })
+    all_groups_df = pd.concat([all_groups_df, group_data], axis=1)
+
+
+all_groups_df.to_csv('/path/all_groups1_data.csv', index=False)
+
+
+
