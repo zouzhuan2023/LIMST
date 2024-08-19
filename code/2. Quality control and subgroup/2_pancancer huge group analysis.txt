@@ -1,5 +1,4 @@
-######################################################
-#####################################
+####################
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
@@ -12,34 +11,43 @@ import math
 import itertools
 import warnings
 import anndata as ad
+################
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+dir='/path/'
+df = pd.read_csv(dir + 'sample.csv')
 
-path='/path/'
-df = pd.read_csv(path + 'table_nubmer.csv')
 categories = df['Category']
 Fn = df['Fn']
-Vn = df['Vn']
-bar_width = 2  
+bar_width = 2 
 index = np.arange(len(categories)) * 5 
 plt.figure(figsize=(14, 8))  
-bars1 = plt.bar(index - bar_width/2, Fn, width=bar_width, label='Fn', color='#1F77B4')
-bars2 = plt.bar(index + bar_width/2, Vn, width=bar_width, label='Vn', color='coral')
+
+bars1 = plt.bar(index, Fn, width=bar_width, label='Fn', color='#1F77B4')
+
 plt.xlabel('Category', fontsize=14)
 plt.ylabel('Nubmer of samples', fontsize=14)
-plt.xticks(index, categories, fontsize=12, rotation=45) 
+
+
+plt.xticks(index, categories, fontsize=12, rotation=45)  
+
+
 def add_labels(bars):
     for bar in bars:
         height = bar.get_height()
         if height != 0:  
             plt.text(bar.get_x() + bar.get_width() / 2, height, f'{height}', ha='center', va='bottom')
+
 add_labels(bars1)
-add_labels(bars2)
+
 plt.xticks(fontsize=12)
 plt.yticks(fontsize=12)
+
 plt.gca().spines['top'].set_visible(False)
 plt.gca().spines['right'].set_visible(False)
 plt.legend()
-plt.savefig(path + 'comparison_bar_chart2.pdf', format='pdf', bbox_inches='tight')
-
+plt.savefig(dir + 'chart.pdf', format='pdf', bbox_inches='tight')
 
 
 ###############################################
@@ -256,7 +264,7 @@ plt.rcParams['savefig.dpi'] = 600
 plt.figure(figsize=(20, 10))
 sc.pl.umap(adata, color='Group', palette=colors_Group, legend_loc='right margin', title='UMAP', show=False)
 plt.tight_layout()
-plt.savefig(path + "uamp_Group.png", bbox_inches='tight')
+plt.savefig(path + "uamp_Group2.png", bbox_inches='tight')
 
 
 
@@ -328,9 +336,3 @@ ax.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)
 
 plt.savefig('/path/Histogram.pdf')
-
-
-
-
-
-
